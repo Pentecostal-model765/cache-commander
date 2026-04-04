@@ -45,56 +45,61 @@ pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Securit
         return results;
     }
 
-    let ids: Vec<PackageId> = packages.iter().map(|(_, id)| id.clone()).collect();
-    match osv::query_osv(&ids) {
-        Ok(response) => {
-            let mut vuln_ids_to_fetch: Vec<String> = Vec::new();
+    // OSV batch API works best with chunks of ~100 packages
+    let mut vuln_ids_to_fetch: Vec<String> = Vec::new();
 
-            for (i, query_result) in response.results.iter().enumerate() {
-                if i >= packages.len() {
-                    break;
-                }
-                if !query_result.vulns.is_empty() {
-                    let vulns: Vec<Vulnerability> = query_result
-                        .vulns
-                        .iter()
-                        .map(|v| {
-                            if !vuln_ids_to_fetch.contains(&v.id) {
-                                vuln_ids_to_fetch.push(v.id.clone());
-                            }
-                            Vulnerability {
-                                id: v.id.clone(),
-                                summary: v.summary.clone().unwrap_or_default(),
-                                severity: v.severity.first().map(|s| s.score.clone()),
-                                fix_version: None,
-                            }
-                        })
-                        .collect();
-                    results.insert(packages[i].0.clone(), SecurityInfo { vulns });
-                }
+    for chunk in packages.chunks(100) {
+        let ids: Vec<PackageId> = chunk.iter().map(|(_, id)| id.clone()).collect();
+        let response = match osv::query_osv(&ids) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("OSV batch query failed for chunk: {e}");
+                continue;
             }
+        };
 
-            // Fetch fix versions from detail endpoint
-            let detail_cache = fetch_fix_versions(&vuln_ids_to_fetch);
-
-            // Backfill fix_version and filter out vulns already fixed by installed version
-            for (path, info) in results.iter_mut() {
-                let pkg = packages.iter().find(|(p, _)| p == path).map(|(_, id)| id);
-                if let Some(pkg) = pkg {
-                    for vuln in &mut info.vulns {
-                        if let Some(detail) = detail_cache.get(&vuln.id) {
-                            vuln.fix_version = osv::extract_fix_version(detail, &pkg.name, pkg.ecosystem, &pkg.version);
+        for (i, query_result) in response.results.iter().enumerate() {
+            if i >= chunk.len() {
+                break;
+            }
+            if !query_result.vulns.is_empty() {
+                let vulns: Vec<Vulnerability> = query_result
+                    .vulns
+                    .iter()
+                    .map(|v| {
+                        if !vuln_ids_to_fetch.contains(&v.id) {
+                            vuln_ids_to_fetch.push(v.id.clone());
                         }
-                    }
-                    // Remove vulns where the fix version is <= installed version
-                    info.vulns.retain(|vuln| is_vuln_active(&vuln.fix_version, &pkg.version));
+                        Vulnerability {
+                            id: v.id.clone(),
+                            summary: v.summary.clone().unwrap_or_default(),
+                            severity: v.severity.first().map(|s| s.score.clone()),
+                            fix_version: None,
+                        }
+                    })
+                    .collect();
+                results.insert(chunk[i].0.clone(), SecurityInfo { vulns });
+            }
+        }
+    }
+
+    // Fetch fix versions from detail endpoint
+    let detail_cache = fetch_fix_versions(&vuln_ids_to_fetch);
+
+    // Backfill fix_version and filter out vulns already fixed by installed version
+    for (path, info) in results.iter_mut() {
+        let pkg = packages.iter().find(|(p, _)| p == path).map(|(_, id)| id);
+        if let Some(pkg) = pkg {
+            for vuln in &mut info.vulns {
+                if let Some(detail) = detail_cache.get(&vuln.id) {
+                    vuln.fix_version = osv::extract_fix_version(detail, &pkg.name, pkg.ecosystem, &pkg.version);
                 }
             }
-            // Remove entries with no remaining vulns
-            results.retain(|_, info| !info.vulns.is_empty());
+            info.vulns.retain(|vuln| is_vuln_active(&vuln.fix_version, &pkg.version));
         }
-        Err(_) => {}
     }
+    results.retain(|_, info| !info.vulns.is_empty());
+
     results
 }
 
