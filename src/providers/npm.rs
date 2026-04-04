@@ -89,6 +89,12 @@ fn npx_package_name(path: &Path) -> Option<String> {
 }
 
 pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    // Skip node_modules subdirectories — only match top-level npx/project packages
+    let path_str = path.to_string_lossy();
+    if path_str.contains("node_modules") {
+        return None;
+    }
+
     let pkg_json = path.join("package.json");
     let content = std::fs::read_to_string(pkg_json).ok()?;
     let name = extract_json_field(&content, "name")?;
