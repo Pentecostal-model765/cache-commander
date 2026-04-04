@@ -156,7 +156,8 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
 
 pub fn upgrade_command(kind: CacheKind, name: &str, version: &str) -> Option<String> {
     match kind {
-        CacheKind::Pip | CacheKind::Uv => Some(format!("pip install {name}>={version}")),
+        CacheKind::Pip => Some(format!("pip install {name}>={version}")),
+        CacheKind::Uv => Some(format!("uv pip install {name}>={version}")),
         CacheKind::Npm => Some(format!("npm install {name}@{version}")),
         CacheKind::Cargo => Some(format!("cargo update -p {name}")),
         _ => None,
@@ -316,7 +317,7 @@ mod tests {
     fn upgrade_command_uv() {
         assert_eq!(
             upgrade_command(CacheKind::Uv, "flask", "3.1.0"),
-            Some("pip install flask>=3.1.0".to_string())
+            Some("uv pip install flask>=3.1.0".to_string())
         );
     }
 

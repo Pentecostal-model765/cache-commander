@@ -291,6 +291,9 @@ impl TreeState {
         }
         self.marked = new_marked;
 
+        // Clear dimmed — will be recomputed by caller if filter is active
+        self.dimmed.clear();
+
         // Insert children
         let mut insert_children: Vec<TreeNode> = Vec::with_capacity(count);
         for child in adjusted {
@@ -511,6 +514,9 @@ impl TreeState {
             }
             self.marked = new_marked;
         }
+
+        // Clear dimmed — will be recomputed by caller if filter is active
+        self.dimmed.clear();
 
         if self.selected >= self.visible.len() {
             self.selected = self.visible.len().saturating_sub(1);
