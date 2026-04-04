@@ -170,6 +170,31 @@ impl TreeState {
         }
     }
 
+    /// If current selection is on a dimmed node, move to the nearest non-dimmed one.
+    pub fn snap_selection_to_non_dimmed(&mut self) {
+        if self.visible.is_empty() || self.dimmed.is_empty() {
+            return;
+        }
+        if let Some(&idx) = self.visible.get(self.selected) {
+            if !self.dimmed.contains(&idx) {
+                return; // already on a non-dimmed node
+            }
+        }
+        // Try downward first, then upward
+        for i in self.selected..self.visible.len() {
+            if !self.dimmed.contains(&self.visible[i]) {
+                self.selected = i;
+                return;
+            }
+        }
+        for i in (0..self.selected).rev() {
+            if !self.dimmed.contains(&self.visible[i]) {
+                self.selected = i;
+                return;
+            }
+        }
+    }
+
     pub fn go_bottom(&mut self) {
         for i in (0..self.visible.len()).rev() {
             if !self.dimmed.contains(&self.visible[i]) {

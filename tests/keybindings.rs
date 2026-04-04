@@ -1158,3 +1158,57 @@ fn dimmed_survives_expand_collapse() {
     assert!(app.tree.dimmed.contains(&beta_idx), "beta should still be dimmed after expand");
     assert!(app.tree.dimmed.contains(&gamma_idx), "gamma should still be dimmed after expand");
 }
+
+#[test]
+fn switching_filter_mode_updates_dimmed() {
+    let mut app = test_app_with_children();
+    // visible: alpha(0), child-big(1), child-small(2), beta(3), gamma(4)
+
+    // child-big: vuln only, child-small: outdated only
+    let child_big_path = app.tree.nodes[1].path.clone();
+    let child_small_path = app.tree.nodes[2].path.clone();
+    let alpha_path = app.tree.nodes[0].path.clone();
+
+    app.node_status.insert(
+        child_big_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+    app.node_status.insert(
+        child_small_path.clone(),
+        ccmd::security::NodeStatus { has_vuln: false, has_outdated: true },
+    );
+    app.node_status.insert(
+        alpha_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: true },
+    );
+
+    // f once → Vuln filter
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
+    // child-small is not vuln → dimmed
+    assert!(app.tree.dimmed.contains(&2), "child-small should be dimmed in Vuln mode");
+    // child-big is vuln → not dimmed
+    assert!(!app.tree.dimmed.contains(&1), "child-big should not be dimmed in Vuln mode");
+
+    // Verify nav skips child-small
+    app.tree.selected = 0; // alpha
+    app.process_key(key(KeyCode::Char('j'))); // should go to child-big
+    assert_eq!(app.tree.selected_node().unwrap().name, "child-big");
+    app.process_key(key(KeyCode::Char('j'))); // should skip child-small
+    let after_skip = app.tree.selected_node().unwrap().name.clone();
+    assert_ne!(after_skip, "child-small", "Should skip dimmed child-small, got: {}", after_skip);
+
+    // f again → Outdated filter
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Outdated);
+    // Now child-big (vuln-only, not outdated) should be dimmed
+    assert!(app.tree.dimmed.contains(&1), "child-big should be dimmed in Outdated mode");
+    // child-small (outdated) should NOT be dimmed
+    assert!(!app.tree.dimmed.contains(&2), "child-small should not be dimmed in Outdated mode");
+
+    // Verify nav skips child-big now
+    app.tree.selected = 0; // alpha
+    app.process_key(key(KeyCode::Char('j'))); // should skip child-big, go to child-small
+    assert_eq!(app.tree.selected_node().unwrap().name, "child-small",
+        "After switching to Outdated, nav should skip child-big and land on child-small");
+}

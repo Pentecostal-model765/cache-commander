@@ -244,6 +244,7 @@ impl App {
                 } else {
                     self.tree.filter_mode = self.tree.filter_mode.cycle();
                     self.tree.recompute_dimmed(&self.node_status);
+                    self.tree.snap_selection_to_non_dimmed();
                     if self.tree.filter_mode != crate::tree::state::FilterMode::None {
                         self.status_msg = Some(format!("Filter: {}", self.tree.filter_mode.label()));
                     } else {
