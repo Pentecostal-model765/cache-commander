@@ -137,6 +137,23 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageId {
+    pub ecosystem: &'static str,
+    pub name: String,
+    pub version: String,
+}
+
+pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
+    match kind {
+        CacheKind::Uv => uv::package_id(path),
+        CacheKind::Pip => pip::package_id(path),
+        CacheKind::Npm => npm::package_id(path),
+        CacheKind::Cargo => cargo::package_id(path),
+        _ => None,
+    }
+}
+
 /// Get safety level for deletion.
 pub fn safety(kind: CacheKind, _path: &Path) -> SafetyLevel {
     match kind {

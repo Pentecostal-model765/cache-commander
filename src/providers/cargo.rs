@@ -37,6 +37,35 @@ pub fn semantic_name(path: &Path) -> Option<String> {
     None
 }
 
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    if name.ends_with(".crate") {
+        let stem = name.strip_suffix(".crate")?;
+        if let Some(pos) = stem.rfind('-') {
+            let pkg = &stem[..pos];
+            let ver = &stem[pos + 1..];
+            if ver.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                return Some(super::PackageId {
+                    ecosystem: "crates.io",
+                    name: pkg.to_string(),
+                    version: ver.to_string(),
+                });
+            }
+        }
+    }
+    if name.contains('-') {
+        let parts: Vec<&str> = name.rsplitn(2, '-').collect();
+        if parts.len() == 2 && parts[0].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            return Some(super::PackageId {
+                ecosystem: "crates.io",
+                name: parts[1].to_string(),
+                version: parts[0].to_string(),
+            });
+        }
+    }
+    None
+}
+
 pub fn metadata(path: &Path) -> Vec<MetadataField> {
     let mut fields = Vec::new();
     let name = path

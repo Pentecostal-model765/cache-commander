@@ -88,6 +88,35 @@ fn npx_package_name(path: &Path) -> Option<String> {
     None
 }
 
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    let pkg_json = path.join("package.json");
+    let content = std::fs::read_to_string(pkg_json).ok()?;
+    let name = extract_json_field(&content, "name")?;
+    let version = extract_json_field(&content, "version")?;
+    if name.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some(super::PackageId {
+        ecosystem: "npm",
+        name,
+        version,
+    })
+}
+
+fn extract_json_field(json: &str, key: &str) -> Option<String> {
+    let pattern = format!("\"{}\"", key);
+    let pos = json.find(&pattern)?;
+    let rest = &json[pos + pattern.len()..];
+    let colon = rest.find(':')?;
+    let after_colon = rest[colon + 1..].trim_start();
+    if after_colon.starts_with('"') {
+        let start = 1;
+        let end = after_colon[start..].find('"')?;
+        return Some(after_colon[start..start + end].to_string());
+    }
+    None
+}
+
 pub fn metadata(path: &Path) -> Vec<MetadataField> {
     let mut fields = Vec::new();
     let name = path

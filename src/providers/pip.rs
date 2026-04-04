@@ -22,6 +22,21 @@ pub fn semantic_name(path: &Path) -> Option<String> {
     None
 }
 
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    if name.ends_with(".whl") {
+        let parts: Vec<&str> = name.splitn(3, '-').collect();
+        if parts.len() >= 2 {
+            return Some(super::PackageId {
+                ecosystem: "PyPI",
+                name: parts[0].replace('_', "-").to_lowercase(),
+                version: parts[1].to_string(),
+            });
+        }
+    }
+    None
+}
+
 pub fn metadata(path: &Path) -> Vec<MetadataField> {
     let mut fields = Vec::new();
     let name = path

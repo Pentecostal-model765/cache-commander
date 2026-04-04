@@ -65,6 +65,26 @@ fn identify_package_from_dist_info(path: &Path) -> Option<String> {
     }
 }
 
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    let entries = std::fs::read_dir(path).ok()?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".dist-info") {
+            let stem = name.strip_suffix(".dist-info")?;
+            if let Some(pos) = stem.rfind('-') {
+                let pkg = &stem[..pos];
+                let ver = &stem[pos + 1..];
+                return Some(super::PackageId {
+                    ecosystem: "PyPI",
+                    name: pkg.replace('_', "-").to_lowercase(),
+                    version: ver.to_string(),
+                });
+            }
+        }
+    }
+    None
+}
+
 pub fn metadata(path: &Path) -> Vec<MetadataField> {
     let mut fields = Vec::new();
     let name = path
@@ -201,5 +221,24 @@ mod tests {
         let hash_dir = tmp.path().join("empty_hash");
         std::fs::create_dir_all(&hash_dir).unwrap();
         assert_eq!(semantic_name(&hash_dir), None);
+    }
+
+    #[test]
+    fn package_id_from_dist_info() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hash_dir = tmp.path().join("abc123");
+        std::fs::create_dir_all(hash_dir.join("requests-2.31.0.dist-info")).unwrap();
+        let id = package_id(&hash_dir).unwrap();
+        assert_eq!(id.ecosystem, "PyPI");
+        assert_eq!(id.name, "requests");
+        assert_eq!(id.version, "2.31.0");
+    }
+
+    #[test]
+    fn package_id_no_dist_info_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(package_id(&dir).is_none());
     }
 }
