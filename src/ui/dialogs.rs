@@ -107,6 +107,8 @@ pub fn render_help(f: &mut Frame) {
         ("r", "Refresh selected"),
         ("R", "Refresh all"),
         ("/", "Search / filter"),
+        ("f", "Cycle status filter (vuln/outdated)"),
+        ("m", "Mark all visible items"),
         ("Esc", "Clear filter / cancel"),
         ("", ""),
         ("v", "Scan selected for CVEs"),

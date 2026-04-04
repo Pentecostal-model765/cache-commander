@@ -32,6 +32,7 @@ pub fn render(
         let node = &tree.nodes[node_idx];
         let is_selected = vis_idx == tree.selected;
         let is_marked = tree.marked.contains(&node_idx);
+        let is_dimmed = tree.dimmed.contains(&node_idx);
 
         // Indentation
         let indent = "  ".repeat(node.depth as usize);
@@ -83,20 +84,26 @@ pub fn render(
             .saturating_sub(prefix_len + truncated_name.len() + size_len);
         let padding = " ".repeat(padding_len);
 
-        let style = match (is_selected, is_marked) {
-            (true, true) => theme::MARKED_SELECTED,
-            (true, false) => theme::SELECTED,
-            (false, true) => theme::MARKED,
-            (false, false) => {
-                if node.is_root {
-                    theme::DIM
-                } else {
-                    theme::NORMAL
+        let style = if is_dimmed {
+            theme::DIMMED
+        } else {
+            match (is_selected, is_marked) {
+                (true, true) => theme::MARKED_SELECTED,
+                (true, false) => theme::SELECTED,
+                (false, true) => theme::MARKED,
+                (false, false) => {
+                    if node.is_root {
+                        theme::DIM
+                    } else {
+                        theme::NORMAL
+                    }
                 }
             }
         };
 
-        let icon_style = if let Some(s) = status {
+        let icon_style = if is_dimmed {
+            theme::DIMMED
+        } else if let Some(s) = status {
             if s.has_vuln {
                 theme::DANGER
             } else {
@@ -111,7 +118,7 @@ pub fn render(
             Span::styled(status_icon, if is_selected { style } else { icon_style }),
             Span::styled(truncated_name, style),
             Span::styled(padding, style),
-            Span::styled(format!("{size_str} "), if is_selected { style } else { theme::SIZE }),
+            Span::styled(format!("{size_str} "), if is_dimmed { theme::DIMMED } else if is_selected { style } else { theme::SIZE }),
         ]);
 
         lines.push(line);

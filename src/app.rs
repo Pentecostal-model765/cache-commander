@@ -96,6 +96,7 @@ impl App {
                     self.vuln_results.extend(results);
                     self.vulnscan_in_progress = false;
                     self.recompute_node_status();
+                    self.tree.recompute_dimmed(&self.node_status);
                     let vuln_count = self.vuln_results.values().map(|s| s.vulns.len()).sum::<usize>();
                     self.status_msg = Some(if vuln_count > 0 {
                         format!("Scanned {} packages — {} vulnerabilit{} found", scanned, vuln_count, if vuln_count == 1 { "y" } else { "ies" })
@@ -107,6 +108,7 @@ impl App {
                     self.version_results.extend(results);
                     self.versioncheck_in_progress = false;
                     self.recompute_node_status();
+                    self.tree.recompute_dimmed(&self.node_status);
                     let outdated = self.version_results.values().filter(|v| v.is_outdated).count();
                     self.status_msg = Some(if outdated > 0 {
                         format!("Checked {} packages — {} outdated", checked, outdated)
@@ -478,6 +480,9 @@ impl App {
         } else if outdated_count > 0 {
             stats.push_str(&format!("  │  ↓ {} outdated", outdated_count));
         }
+        if self.tree.filter_mode != crate::tree::state::FilterMode::None {
+            stats.push_str(&format!("  │  filter: {}", self.tree.filter_mode.label()));
+        }
         stats.push_str("  │  ? help");
 
         use crate::ui::theme;
@@ -573,6 +578,10 @@ impl App {
                 Span::styled(" sort  ", crate::ui::theme::NORMAL),
                 Span::styled("/", crate::ui::theme::KEY),
                 Span::styled(" search  ", crate::ui::theme::NORMAL),
+                Span::styled("f", crate::ui::theme::KEY),
+                Span::styled(" filter  ", crate::ui::theme::NORMAL),
+                Span::styled("m", crate::ui::theme::KEY),
+                Span::styled(" mark all  ", crate::ui::theme::NORMAL),
                 Span::styled(&marked_hint, crate::ui::theme::CAUTION),
             ])
         };
