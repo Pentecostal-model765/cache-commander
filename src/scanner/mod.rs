@@ -58,7 +58,7 @@ pub fn start(
                 ScanRequest::ExpandNode(path) => {
                     // Send children immediately with metadata but size=0
                     let children_paths = walker::list_children(&path);
-                    let children: Vec<TreeNode> = children_paths
+                    let mut children: Vec<TreeNode> = children_paths
                         .iter()
                         .map(|child_path| {
                             let mut node =
@@ -77,11 +77,22 @@ pub fn start(
                         })
                         .collect();
 
+                    // Try quick_size for small dirs before sending children
+                    // This gives instant sizes for most entries
+                    let mut deferred: Vec<PathBuf> = Vec::new();
+                    for (i, child_path) in children_paths.iter().enumerate() {
+                        if let Some(size) = walker::quick_size(child_path) {
+                            children[i].size = size;
+                        } else {
+                            deferred.push(child_path.clone());
+                        }
+                    }
+
                     let _ = result_tx
                         .send(ScanResult::ChildrenScanned(path.clone(), children));
 
-                    // Spawn size computation for each child in background
-                    for child_path in children_paths {
+                    // Only spawn threads for large dirs that need full walks
+                    for child_path in deferred {
                         let tx = result_tx.clone();
                         std::thread::spawn(move || {
                             let size = walker::dir_size(&child_path);

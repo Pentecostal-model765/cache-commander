@@ -109,26 +109,14 @@ fn scanner_expand_discovers_children_with_providers() {
             let wh = children.iter().find(|n| n.name == "whisper").unwrap();
             assert_eq!(wh.kind, cache_explorer::tree::node::CacheKind::Whisper);
 
-            // Children arrive with size=0 (async)
-            for child in &children {
-                assert_eq!(child.size, 0, "{} should start with size=0 (async)", child.name);
-            }
+            // Small children get instant sizes via quick_size;
+            // large ones arrive with size=0 and get async updates
         }
         _ => panic!("Expected ChildrenScanned"),
     }
 
-    // Size updates arrive separately
-    let mut sizes_received = 0;
-    while let Ok(result) = result_rx.recv_timeout(Duration::from_secs(5)) {
-        if let cache_explorer::scanner::ScanResult::SizeUpdated(_, size) = result {
-            assert!(size > 0);
-            sizes_received += 1;
-            if sizes_received == 3 {
-                break;
-            }
-        }
-    }
-    assert_eq!(sizes_received, 3, "Should receive 3 size updates");
+    // Small test fixtures get instant sizes via quick_size,
+    // so no SizeUpdated messages expected for this test
 }
 
 #[test]
@@ -366,26 +354,12 @@ fn async_expand_returns_children_with_zero_size() {
     match result {
         cache_explorer::scanner::ScanResult::ChildrenScanned(_, children) => {
             assert_eq!(children.len(), 2);
-            for child in &children {
-                assert_eq!(child.size, 0, "Children should arrive with size=0");
-            }
+            // Small dirs get instant sizes via quick_size
+            let sub1 = children.iter().find(|c| c.path == tmp.path().join("sub1")).unwrap();
+            assert!(sub1.size > 0, "sub1 should have instant size via quick_size");
         }
         _ => panic!("Expected ChildrenScanned first"),
     }
-
-    let mut sizes = std::collections::HashMap::new();
-    while let Ok(result) = result_rx.recv_timeout(Duration::from_secs(5)) {
-        if let cache_explorer::scanner::ScanResult::SizeUpdated(path, size) = result {
-            sizes.insert(path, size);
-            if sizes.len() == 2 {
-                break;
-            }
-        }
-    }
-    assert_eq!(sizes.len(), 2, "Should get 2 size updates");
-
-    let sub1_size = sizes.get(&tmp.path().join("sub1")).unwrap();
-    assert!(*sub1_size > 0, "sub1 should have non-zero size");
 }
 
 #[test]
@@ -411,31 +385,22 @@ fn scanner_expand_and_size_update_full_cycle() {
 
     let result = result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     if let cache_explorer::scanner::ScanResult::ChildrenScanned(parent_path, children) = result {
-        let count = children.len();
         let parent_idx = tree.nodes.iter().position(|n| n.path == parent_path).unwrap();
         tree.insert_children(parent_idx, children);
         assert!(tree.nodes.len() > 1);
 
-        for i in 1..=count {
-            assert_eq!(tree.nodes[i].size, 0);
-        }
-
-        let mut updates = 0;
-        while let Ok(result) = result_rx.recv_timeout(Duration::from_secs(5)) {
+        // Small dirs get instant sizes via quick_size, large ones come via SizeUpdated
+        // Drain any remaining size updates
+        while let Ok(result) = result_rx.recv_timeout(Duration::from_secs(2)) {
             if let cache_explorer::scanner::ScanResult::SizeUpdated(path, size) = result {
                 if let Some(node) = tree.nodes.iter_mut().find(|n| n.path == path) {
                     node.size = size;
                 }
-                updates += 1;
-                if updates == count {
-                    break;
-                }
             }
         }
-        assert_eq!(updates, count);
 
         let hf = tree.nodes.iter().find(|n| n.name == "huggingface").unwrap();
-        assert!(hf.size > 0, "huggingface should have size after update");
+        assert!(hf.size > 0, "huggingface should have size");
     }
 }
 

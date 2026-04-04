@@ -1,6 +1,8 @@
 use std::path::Path;
 
-/// Compute the total size of a directory recursively using jwalk for parallelism.
+/// Compute the total size of a directory recursively.
+/// Uses jwalk with limited parallelism to avoid thread explosion
+/// when multiple dir_size calls run concurrently.
 pub fn dir_size(path: &Path) -> u64 {
     if path.is_file() {
         return path.metadata().map(|m| m.len()).unwrap_or(0);
@@ -8,11 +10,38 @@ pub fn dir_size(path: &Path) -> u64 {
 
     jwalk::WalkDir::new(path)
         .skip_hidden(false)
+        .parallelism(jwalk::Parallelism::RayonNewPool(2))
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
         .sum()
+}
+
+/// Quick size for small directories — avoids jwalk overhead.
+/// Returns None if the dir has too many entries (caller should use dir_size).
+pub fn quick_size(path: &Path) -> Option<u64> {
+    if path.is_file() {
+        return Some(path.metadata().map(|m| m.len()).unwrap_or(0));
+    }
+    let entries: Vec<_> = std::fs::read_dir(path).ok()?.take(50).collect();
+    if entries.len() >= 50 {
+        return None; // Too many entries, use full walk
+    }
+    let mut total = 0u64;
+    for entry in entries.into_iter().filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if p.is_file() {
+            total += p.metadata().map(|m| m.len()).unwrap_or(0);
+        } else if p.is_dir() {
+            // Recurse but only if shallow
+            match quick_size(&p) {
+                Some(s) => total += s,
+                None => return None,
+            }
+        }
+    }
+    Some(total)
 }
 
 /// List immediate children of a directory.
