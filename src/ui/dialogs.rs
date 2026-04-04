@@ -136,7 +136,7 @@ pub fn render_help(f: &mut Frame) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  By Julien Simon",
+        "  By Julien Simon <julien@julien.org>",
         theme::DIM,
     )));
     lines.push(Line::from(Span::styled(
