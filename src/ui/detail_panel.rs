@@ -242,3 +242,45 @@ fn extract_package_name(name: &str) -> String {
     };
     stripped.split_whitespace().next().unwrap_or(stripped).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_plain_name() {
+        assert_eq!(extract_package_name("flask"), "flask");
+    }
+
+    #[test]
+    fn extract_name_with_version() {
+        assert_eq!(extract_package_name("requests 2.31.0"), "requests");
+    }
+
+    #[test]
+    fn extract_name_with_bracket_prefix() {
+        assert_eq!(extract_package_name("[model] llama"), "llama");
+    }
+
+    #[test]
+    fn extract_name_with_bracket_prefix_and_version() {
+        assert_eq!(extract_package_name("[PyPI] requests 2.31.0"), "requests");
+    }
+
+    #[test]
+    fn extract_name_empty_string() {
+        assert_eq!(extract_package_name(""), "");
+    }
+
+    #[test]
+    fn extract_name_bracket_no_close() {
+        // "[broken" has no "] " separator, falls back to original name
+        let result = extract_package_name("[broken");
+        assert_eq!(result, "[broken");
+    }
+
+    #[test]
+    fn extract_name_multiple_spaces() {
+        assert_eq!(extract_package_name("serde  1.0.200  extra"), "serde");
+    }
+}

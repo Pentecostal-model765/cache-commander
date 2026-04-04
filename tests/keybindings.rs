@@ -1212,3 +1212,248 @@ fn switching_filter_mode_updates_dimmed() {
     assert_eq!(app.tree.selected_node().unwrap().name, "child-small",
         "After switching to Outdated, nav should skip child-big and land on child-small");
 }
+
+// === Defensive: toggle_mark on dimmed node ===
+
+#[test]
+fn toggle_mark_on_dimmed_node_is_noop() {
+    let mut app = test_app();
+    // Dim the first node
+    app.tree.dimmed.insert(0);
+    // Force selection onto the dimmed node
+    app.tree.selected = 0;
+
+    app.process_key(key(KeyCode::Char(' ')));
+    assert!(!app.tree.marked.contains(&0), "Space on a dimmed node should not mark it");
+    assert_eq!(app.tree.selected, 0, "Selection should not advance on dimmed toggle_mark");
+}
+
+// === Bulk mark edge cases ===
+
+#[test]
+fn key_m_when_all_already_marked_shows_no_items() {
+    let mut app = test_app();
+    // Mark everything first
+    for &idx in app.tree.visible.clone().iter() {
+        app.tree.marked.insert(idx);
+    }
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::Normal, "Should stay in Normal mode when nothing to mark");
+    assert!(app.status_msg.as_ref().unwrap().contains("No items"));
+}
+
+#[test]
+fn key_m_no_filter_marks_everything() {
+    let mut app = test_app();
+    // No filter active, no dimmed items
+    assert!(app.tree.dimmed.is_empty());
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::MarkingAll);
+    app.process_key(key(KeyCode::Char('y')));
+    // All 3 roots should be marked
+    assert_eq!(app.tree.marked.len(), 3);
+    assert!(app.tree.marked.contains(&0));
+    assert!(app.tree.marked.contains(&1));
+    assert!(app.tree.marked.contains(&2));
+}
+
+// === MarkingAll mode isolation ===
+
+#[test]
+fn marking_all_mode_j_does_not_navigate() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::MarkingAll);
+    let selected_before = app.tree.selected;
+    app.process_key(key(KeyCode::Char('j')));
+    assert_eq!(app.tree.selected, selected_before, "j should not navigate in MarkingAll mode");
+    assert_eq!(app.mode, AppMode::MarkingAll, "Should still be in MarkingAll mode");
+}
+
+#[test]
+fn marking_all_mode_k_does_not_navigate() {
+    let mut app = test_app();
+    app.tree.selected = 2;
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::MarkingAll);
+    app.process_key(key(KeyCode::Char('k')));
+    assert_eq!(app.tree.selected, 2, "k should not navigate in MarkingAll mode");
+}
+
+#[test]
+fn marking_all_mode_q_does_not_quit() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::MarkingAll);
+    app.process_key(key(KeyCode::Char('q')));
+    assert!(!app.should_quit, "q should not quit in MarkingAll mode");
+    assert_eq!(app.mode, AppMode::MarkingAll, "Should still be in MarkingAll mode");
+}
+
+#[test]
+fn marking_all_mode_space_does_not_toggle_mark() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('m')));
+    assert_eq!(app.mode, AppMode::MarkingAll);
+    app.process_key(key(KeyCode::Char(' ')));
+    assert!(app.tree.marked.is_empty(), "Space should not toggle mark in MarkingAll mode");
+}
+
+// === snap_selection_to_non_dimmed edge cases ===
+
+#[test]
+fn snap_selection_when_all_dimmed_stays_put() {
+    let mut app = test_app();
+    // Dim everything
+    for &idx in app.tree.visible.clone().iter() {
+        app.tree.dimmed.insert(idx);
+    }
+    let before = app.tree.selected;
+    app.tree.snap_selection_to_non_dimmed();
+    // Can't move anywhere meaningful — should not panic, selection stays
+    assert_eq!(app.tree.selected, before);
+}
+
+#[test]
+fn snap_selection_already_non_dimmed_is_noop() {
+    let mut app = test_app();
+    // Dim only beta (index 1)
+    app.tree.dimmed.insert(1);
+    app.tree.selected = 0; // alpha is not dimmed
+    app.tree.snap_selection_to_non_dimmed();
+    assert_eq!(app.tree.selected, 0, "Should stay on alpha (already non-dimmed)");
+}
+
+// === Sort while filter active ===
+
+#[test]
+fn sort_while_filter_preserves_dimmed() {
+    let mut app = test_app_with_children();
+    // Mark child-big as vuln
+    let child_big_path = app.tree.nodes[1].path.clone();
+    let alpha_path = app.tree.nodes[0].path.clone();
+    app.node_status.insert(
+        child_big_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+    app.node_status.insert(
+        alpha_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+
+    // Activate vuln filter
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
+    let dimmed_count_before = app.tree.dimmed.len();
+    assert!(dimmed_count_before > 0, "Some nodes should be dimmed");
+
+    // Sort — dimmed should be recomputed after sort
+    app.process_key(key(KeyCode::Char('s')));
+    assert!(!app.tree.dimmed.is_empty(), "Dimmed set should survive sort");
+}
+
+// === Delete while filter active ===
+
+#[test]
+fn delete_while_filter_recomputes_dimmed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vuln_dir = tmp.path().join("vuln-pkg");
+    let safe_dir = tmp.path().join("safe-pkg");
+    std::fs::create_dir_all(&vuln_dir).unwrap();
+    std::fs::create_dir_all(&safe_dir).unwrap();
+    std::fs::write(vuln_dir.join("data"), "x").unwrap();
+    std::fs::write(safe_dir.join("data"), "y").unwrap();
+
+    let config = Config {
+        roots: vec![],
+        sort_by: SortField::Name,
+        sort_desc: false,
+        confirm_delete: false,
+        ..Default::default()
+    };
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = scanner::start(result_tx);
+    let mut app = App::new(config, result_rx, scan_tx);
+
+    app.tree.set_roots(vec![
+        TreeNode {
+            path: vuln_dir.clone(), name: "vuln-pkg".into(), size: 100, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+        TreeNode {
+            path: safe_dir.clone(), name: "safe-pkg".into(), size: 100, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+    ]);
+
+    // Set up vuln status on vuln-pkg only
+    app.vuln_results.insert(
+        vuln_dir.clone(),
+        ccmd::security::SecurityInfo {
+            vulns: vec![ccmd::security::Vulnerability {
+                id: "CVE-2024-0001".into(),
+                summary: "test".into(),
+                severity: None,
+                fix_version: None,
+            }],
+        },
+    );
+    app.recompute_node_status();
+
+    // Activate vuln filter
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
+
+    // safe-pkg should be dimmed
+    let safe_idx = app.tree.nodes.iter().position(|n| n.name == "safe-pkg").unwrap();
+    assert!(app.tree.dimmed.contains(&safe_idx), "safe-pkg should be dimmed");
+
+    // Mark vuln-pkg and delete it
+    app.tree.selected = 0;
+    app.process_key(key(KeyCode::Char(' ')));
+    app.process_key(key(KeyCode::Char('d')));
+
+    assert!(!vuln_dir.exists(), "vuln-pkg should be deleted");
+    assert!(safe_dir.exists(), "safe-pkg should still exist");
+
+    // After deletion, tree should still be consistent
+    assert!(!app.tree.nodes.is_empty(), "Tree should still have nodes");
+    // Selection should be valid
+    assert!(app.tree.selected < app.tree.visible.len() || app.tree.visible.is_empty());
+}
+
+// === Navigation after filter switch snaps cursor ===
+
+#[test]
+fn filter_switch_snaps_cursor_to_non_dimmed() {
+    let mut app = test_app_with_children();
+    // child-big: vuln, child-small: outdated, alpha: both
+    let child_big_path = app.tree.nodes[1].path.clone();
+    let child_small_path = app.tree.nodes[2].path.clone();
+    let alpha_path = app.tree.nodes[0].path.clone();
+
+    app.node_status.insert(
+        child_big_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+    app.node_status.insert(
+        child_small_path,
+        ccmd::security::NodeStatus { has_vuln: false, has_outdated: true },
+    );
+    app.node_status.insert(
+        alpha_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: true },
+    );
+
+    // Select child-small (index 2)
+    app.tree.selected = 2;
+
+    // Activate Vuln filter — child-small is not vuln, so it gets dimmed
+    app.process_key(key(KeyCode::Char('f')));
+    // Cursor should have snapped away from child-small
+    let selected_idx = app.tree.visible[app.tree.selected];
+    assert!(!app.tree.dimmed.contains(&selected_idx),
+        "After filter switch, cursor should not be on a dimmed node");
+}

@@ -341,4 +341,26 @@ mod tests {
     fn upgrade_command_unknown_returns_none() {
         assert_eq!(upgrade_command(CacheKind::Unknown, "foo", "1.0"), None);
     }
+
+    #[test]
+    fn upgrade_command_unsupported_kinds_return_none() {
+        let unsupported = [
+            CacheKind::HuggingFace,
+            CacheKind::Homebrew,
+            CacheKind::PreCommit,
+            CacheKind::Whisper,
+            CacheKind::Gh,
+            CacheKind::Torch,
+            CacheKind::Chroma,
+            CacheKind::Prisma,
+        ];
+        for kind in unsupported {
+            assert_eq!(
+                upgrade_command(kind, "pkg", "1.0"),
+                None,
+                "{:?} should return None for upgrade_command",
+                kind
+            );
+        }
+    }
 }

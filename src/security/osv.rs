@@ -201,4 +201,104 @@ mod tests {
         let fix = extract_fix_version(&detail, "urllib3", "PyPI");
         assert_eq!(fix, None);
     }
+
+    #[test]
+    fn parse_vuln_detail_no_affected_field() {
+        let json = r#"{"id": "CVE-2024-0001", "summary": "No affected"}"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert_eq!(detail.id, "CVE-2024-0001");
+        assert!(detail.affected.is_empty());
+        let fix = extract_fix_version(&detail, "anything", "PyPI");
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn parse_vuln_detail_empty_ranges() {
+        let json = r#"{
+            "id": "CVE-2024-0002",
+            "affected": [{
+                "package": {"name": "flask", "ecosystem": "PyPI"},
+                "ranges": []
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        let fix = extract_fix_version(&detail, "flask", "PyPI");
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn parse_vuln_detail_empty_events() {
+        let json = r#"{
+            "id": "CVE-2024-0003",
+            "affected": [{
+                "package": {"name": "flask", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": []}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        let fix = extract_fix_version(&detail, "flask", "PyPI");
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn parse_vuln_detail_only_introduced_no_fixed() {
+        let json = r#"{
+            "id": "CVE-2024-0004",
+            "affected": [{
+                "package": {"name": "flask", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        let fix = extract_fix_version(&detail, "flask", "PyPI");
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn parse_vuln_detail_multiple_affected_packages() {
+        let json = r#"{
+            "id": "CVE-2024-0005",
+            "affected": [
+                {
+                    "package": {"name": "requests", "ecosystem": "PyPI"},
+                    "ranges": [{"type": "ECOSYSTEM", "events": [{"fixed": "2.32.0"}]}]
+                },
+                {
+                    "package": {"name": "urllib3", "ecosystem": "PyPI"},
+                    "ranges": [{"type": "ECOSYSTEM", "events": [{"fixed": "1.26.18"}]}]
+                }
+            ]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert_eq!(detail.affected.len(), 2);
+        assert_eq!(extract_fix_version(&detail, "requests", "PyPI"), Some("2.32.0".to_string()));
+        assert_eq!(extract_fix_version(&detail, "urllib3", "PyPI"), Some("1.26.18".to_string()));
+        assert_eq!(extract_fix_version(&detail, "flask", "PyPI"), None);
+    }
+
+    #[test]
+    fn extract_fix_version_wrong_ecosystem() {
+        let json = r#"{
+            "id": "CVE-2024-0006",
+            "affected": [{
+                "package": {"name": "requests", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"fixed": "2.32.0"}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        // Right name, wrong ecosystem
+        assert_eq!(extract_fix_version(&detail, "requests", "npm"), None);
+    }
+
+    #[test]
+    fn parse_vuln_detail_affected_no_package() {
+        let json = r#"{
+            "id": "CVE-2024-0007",
+            "affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"fixed": "1.0"}]}]}]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert!(detail.affected[0].package.is_none());
+        let fix = extract_fix_version(&detail, "anything", "PyPI");
+        assert_eq!(fix, None);
+    }
 }

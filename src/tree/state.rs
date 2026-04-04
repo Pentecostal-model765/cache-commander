@@ -1297,4 +1297,220 @@ mod tests {
         // All roots should still be visible
         assert_eq!(tree.visible.len(), 3);
     }
+
+    // --- FilterMode ---
+
+    #[test]
+    fn filter_mode_cycle_all_variants() {
+        let mode = FilterMode::None;
+        let mode = mode.cycle();
+        assert_eq!(mode, FilterMode::Vuln);
+        let mode = mode.cycle();
+        assert_eq!(mode, FilterMode::Outdated);
+        let mode = mode.cycle();
+        assert_eq!(mode, FilterMode::Both);
+        let mode = mode.cycle();
+        assert_eq!(mode, FilterMode::None);
+    }
+
+    #[test]
+    fn filter_mode_labels() {
+        assert_eq!(FilterMode::None.label(), "");
+        assert!(!FilterMode::Vuln.label().is_empty());
+        assert!(!FilterMode::Outdated.label().is_empty());
+        assert!(!FilterMode::Both.label().is_empty());
+    }
+
+    // --- Dimmed computation ---
+
+    #[test]
+    fn recompute_dimmed_none_filter_clears_all() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(0);
+        tree.dimmed.insert(1);
+        tree.filter_mode = FilterMode::None;
+        tree.recompute_dimmed_internal();
+        assert!(tree.dimmed.is_empty());
+    }
+
+    #[test]
+    fn recompute_dimmed_vuln_filter() {
+        let mut tree = tree_with_roots();
+        let mut status = HashMap::new();
+        status.insert(
+            tree.nodes[0].path.clone(),
+            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+        );
+        tree.filter_mode = FilterMode::Vuln;
+        tree.recompute_dimmed(&status);
+
+        // root-a has vuln, should NOT be dimmed
+        assert!(!tree.dimmed.contains(&0));
+        // root-b and root-c have no status, should be dimmed
+        assert!(tree.dimmed.contains(&1));
+        assert!(tree.dimmed.contains(&2));
+    }
+
+    #[test]
+    fn recompute_dimmed_outdated_filter() {
+        let mut tree = tree_with_roots();
+        let mut status = HashMap::new();
+        status.insert(
+            tree.nodes[1].path.clone(),
+            crate::security::NodeStatus { has_vuln: false, has_outdated: true },
+        );
+        tree.filter_mode = FilterMode::Outdated;
+        tree.recompute_dimmed(&status);
+
+        assert!(tree.dimmed.contains(&0), "root-a should be dimmed (no outdated)");
+        assert!(!tree.dimmed.contains(&1), "root-b should not be dimmed (outdated)");
+        assert!(tree.dimmed.contains(&2), "root-c should be dimmed (no outdated)");
+    }
+
+    #[test]
+    fn recompute_dimmed_both_filter() {
+        let mut tree = tree_with_roots();
+        let mut status = HashMap::new();
+        status.insert(
+            tree.nodes[0].path.clone(),
+            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+        );
+        status.insert(
+            tree.nodes[1].path.clone(),
+            crate::security::NodeStatus { has_vuln: false, has_outdated: true },
+        );
+        tree.filter_mode = FilterMode::Both;
+        tree.recompute_dimmed(&status);
+
+        // Both has_vuln OR has_outdated count
+        assert!(!tree.dimmed.contains(&0), "root-a has vuln, should not be dimmed");
+        assert!(!tree.dimmed.contains(&1), "root-b has outdated, should not be dimmed");
+        assert!(tree.dimmed.contains(&2), "root-c has neither, should be dimmed");
+    }
+
+    #[test]
+    fn recompute_dimmed_survives_recompute_visible() {
+        let mut tree = tree_with_roots();
+        let mut status = HashMap::new();
+        status.insert(
+            tree.nodes[0].path.clone(),
+            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+        );
+        tree.filter_mode = FilterMode::Vuln;
+        tree.recompute_dimmed(&status);
+        assert!(!tree.dimmed.is_empty());
+
+        // recompute_visible calls recompute_dimmed_internal
+        tree.recompute_visible();
+        assert!(!tree.dimmed.is_empty(), "Dimmed should survive recompute_visible");
+    }
+
+    // --- Navigation with dimmed ---
+
+    #[test]
+    fn move_up_skips_dimmed() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(1); // dim root-b
+        tree.selected = 2; // root-c
+        tree.move_up();
+        assert_eq!(tree.selected, 0, "Should skip dimmed root-b");
+    }
+
+    #[test]
+    fn move_down_skips_dimmed() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(1); // dim root-b
+        tree.selected = 0; // root-a
+        tree.move_down();
+        assert_eq!(tree.selected, 2, "Should skip dimmed root-b");
+    }
+
+    #[test]
+    fn go_bottom_skips_dimmed() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(2); // dim root-c (last)
+        tree.go_bottom();
+        assert_eq!(tree.selected, 1, "Should land on root-b, not dimmed root-c");
+    }
+
+    #[test]
+    fn move_down_all_below_dimmed_stays() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(1);
+        tree.dimmed.insert(2);
+        tree.selected = 0;
+        tree.move_down();
+        assert_eq!(tree.selected, 0, "Should stay at root-a when all below are dimmed");
+    }
+
+    #[test]
+    fn move_up_all_above_dimmed_stays() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(0);
+        tree.dimmed.insert(1);
+        tree.selected = 2;
+        tree.move_up();
+        assert_eq!(tree.selected, 2, "Should stay at root-c when all above are dimmed");
+    }
+
+    // --- toggle_mark with dimmed ---
+
+    #[test]
+    fn toggle_mark_on_dimmed_is_noop() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(0);
+        tree.selected = 0;
+        tree.toggle_mark();
+        assert!(!tree.marked.contains(&0), "Should not mark a dimmed node");
+        assert_eq!(tree.selected, 0, "Selection should not move");
+    }
+
+    // --- snap_selection_to_non_dimmed ---
+
+    #[test]
+    fn snap_prefers_downward() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(1); // dim root-b
+        tree.selected = 1; // on dimmed node
+        tree.snap_selection_to_non_dimmed();
+        assert_eq!(tree.selected, 2, "Should snap downward to root-c");
+    }
+
+    #[test]
+    fn snap_falls_back_to_upward() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(2); // dim root-c (last)
+        tree.selected = 2; // on dimmed node
+        tree.snap_selection_to_non_dimmed();
+        assert_eq!(tree.selected, 1, "Should snap upward to root-b");
+    }
+
+    #[test]
+    fn snap_all_dimmed_no_panic() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(0);
+        tree.dimmed.insert(1);
+        tree.dimmed.insert(2);
+        tree.selected = 1;
+        tree.snap_selection_to_non_dimmed();
+        // Should not panic; selection stays wherever it was
+        assert_eq!(tree.selected, 1);
+    }
+
+    #[test]
+    fn snap_already_non_dimmed_is_noop() {
+        let mut tree = tree_with_roots();
+        tree.dimmed.insert(2); // only dim root-c
+        tree.selected = 0; // on non-dimmed root-a
+        tree.snap_selection_to_non_dimmed();
+        assert_eq!(tree.selected, 0);
+    }
+
+    #[test]
+    fn snap_empty_dimmed_is_noop() {
+        let mut tree = tree_with_roots();
+        tree.selected = 1;
+        tree.snap_selection_to_non_dimmed();
+        assert_eq!(tree.selected, 1);
+    }
 }
