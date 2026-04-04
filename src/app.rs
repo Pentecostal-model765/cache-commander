@@ -35,6 +35,8 @@ pub struct App {
     delete_candidates: Vec<std::path::PathBuf>,
     auto_vulnscan_pending: bool,
     auto_versioncheck_pending: bool,
+    vulnscan_in_progress: bool,
+    versioncheck_in_progress: bool,
 }
 
 impl App {
@@ -61,6 +63,8 @@ impl App {
             delete_candidates: Vec::new(),
             auto_vulnscan_pending: auto_vuln,
             auto_versioncheck_pending: auto_ver,
+            vulnscan_in_progress: false,
+            versioncheck_in_progress: false,
         }
     }
 
@@ -90,13 +94,25 @@ impl App {
                 }
                 ScanResult::VulnsScanned(results) => {
                     self.vuln_results.extend(results);
+                    self.vulnscan_in_progress = false;
                     self.recompute_node_status();
-                    self.status_msg = Some("Vulnerability scan complete".to_string());
+                    let count = self.vuln_results.values().map(|s| s.vulns.len()).sum::<usize>();
+                    self.status_msg = Some(if count > 0 {
+                        format!("Scan complete — {} vulnerabilit{} found", count, if count == 1 { "y" } else { "ies" })
+                    } else {
+                        "Scan complete — no vulnerabilities found".to_string()
+                    });
                 }
                 ScanResult::VersionsChecked(results) => {
                     self.version_results.extend(results);
+                    self.versioncheck_in_progress = false;
                     self.recompute_node_status();
-                    self.status_msg = Some("Version check complete".to_string());
+                    let outdated = self.version_results.values().filter(|v| v.is_outdated).count();
+                    self.status_msg = Some(if outdated > 0 {
+                        format!("Check complete — {} outdated package{}", outdated, if outdated == 1 { "" } else { "s" })
+                    } else {
+                        "Check complete — all packages up to date".to_string()
+                    });
                 }
             }
         }
@@ -109,20 +125,14 @@ impl App {
             if !packages.is_empty() {
                 if self.auto_vulnscan_pending {
                     self.auto_vulnscan_pending = false;
-                    self.status_msg = Some(format!(
-                        "Auto-scanning {} packages for vulnerabilities...",
-                        packages.len()
-                    ));
+                    self.vulnscan_in_progress = true;
                     let _ = self
                         .scan_tx
                         .send(crate::scanner::ScanRequest::ScanVulns(packages.clone()));
                 }
                 if self.auto_versioncheck_pending {
                     self.auto_versioncheck_pending = false;
-                    self.status_msg = Some(format!(
-                        "Auto-checking {} packages for updates...",
-                        packages.len()
-                    ));
+                    self.versioncheck_in_progress = true;
                     let _ = self
                         .scan_tx
                         .send(crate::scanner::ScanRequest::CheckVersions(packages));
@@ -188,28 +198,28 @@ impl App {
             KeyCode::Char('v') => {
                 let packages = self.collect_packages_for_selected();
                 if !packages.is_empty() {
-                    self.status_msg = Some("Scanning for vulnerabilities...".to_string());
+                    self.vulnscan_in_progress = true;
                     let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
                 }
             }
             KeyCode::Char('V') => {
                 let packages = self.collect_all_packages();
                 if !packages.is_empty() {
-                    self.status_msg = Some(format!("Scanning {} packages for vulnerabilities...", packages.len()));
+                    self.vulnscan_in_progress = true;
                     let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
                 }
             }
             KeyCode::Char('o') => {
                 let packages = self.collect_packages_for_selected();
                 if !packages.is_empty() {
-                    self.status_msg = Some("Checking for outdated versions...".to_string());
+                    self.versioncheck_in_progress = true;
                     let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
                 }
             }
             KeyCode::Char('O') => {
                 let packages = self.collect_all_packages();
                 if !packages.is_empty() {
-                    self.status_msg = Some(format!("Checking {} packages for updates...", packages.len()));
+                    self.versioncheck_in_progress = true;
                     let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
                 }
             }
@@ -467,10 +477,14 @@ impl App {
             self.tree.sort_by.label(),
             if self.tree.sort_desc { "↓" } else { "↑" },
         );
-        if vuln_count > 0 {
+        if self.vulnscan_in_progress {
+            stats.push_str("  │  ⚠ scanning...");
+        } else if vuln_count > 0 {
             stats.push_str(&format!("  │  ⚠ {} vuln{}", vuln_count, if vuln_count == 1 { "" } else { "s" }));
         }
-        if outdated_count > 0 {
+        if self.versioncheck_in_progress {
+            stats.push_str("  │  ↓ checking...");
+        } else if outdated_count > 0 {
             stats.push_str(&format!("  │  ↓ {} outdated", outdated_count));
         }
         stats.push_str("  │  ? help");
