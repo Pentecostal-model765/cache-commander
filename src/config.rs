@@ -1,7 +1,7 @@
 use clap::Parser;
 use directories::ProjectDirs;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(name = "ccmd", version, about = "Cache Commander — browse and manage cache directories")]
@@ -63,28 +63,16 @@ impl SortField {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct VulncheckConfig {
     pub enabled: bool,
 }
 
-impl Default for VulncheckConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct VersioncheckConfig {
     pub enabled: bool,
-}
-
-impl Default for VersioncheckConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,11 +163,11 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn expand_tilde(path: &PathBuf) -> PathBuf {
+fn expand_tilde(path: &Path) -> PathBuf {
     if let Ok(stripped) = path.strip_prefix("~") {
         dirs_home().join(stripped)
     } else {
-        path.clone()
+        path.to_path_buf()
     }
 }
 

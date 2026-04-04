@@ -597,9 +597,9 @@ impl TreeState {
             let status = self.node_status.get(&node.path);
             let matches = match self.filter_mode {
                 FilterMode::None => true,
-                FilterMode::Vuln => status.map_or(false, |s| s.has_vuln),
-                FilterMode::Outdated => status.map_or(false, |s| s.has_outdated),
-                FilterMode::Both => status.map_or(false, |s| s.has_vuln || s.has_outdated),
+                FilterMode::Vuln => status.is_some_and(|s| s.has_vuln),
+                FilterMode::Outdated => status.is_some_and(|s| s.has_outdated),
+                FilterMode::Both => status.is_some_and(|s| s.has_vuln || s.has_outdated),
             };
             if matches {
                 matches_filter.insert(idx);

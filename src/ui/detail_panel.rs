@@ -198,7 +198,7 @@ pub fn render(
 
     // Contextual delete hint
     let has_vuln = vuln_results.contains_key(&node.path);
-    let has_outdated = version_results.get(&node.path).map_or(false, |v| v.is_outdated);
+    let has_outdated = version_results.get(&node.path).is_some_and(|v| v.is_outdated);
     if has_vuln || has_outdated {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("ACTION", theme::DIM)));

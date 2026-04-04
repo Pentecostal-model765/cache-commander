@@ -691,7 +691,7 @@ fn copy_to_clipboard(text: &str) -> bool {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(text.as_bytes());
         }
-        return child.wait().map_or(false, |s| s.success());
+        return child.wait().is_ok_and(|s| s.success());
     }
 
     // Linux (xclip)
@@ -705,7 +705,7 @@ fn copy_to_clipboard(text: &str) -> bool {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(text.as_bytes());
         }
-        return child.wait().map_or(false, |s| s.success());
+        return child.wait().is_ok_and(|s| s.success());
     }
 
     false
