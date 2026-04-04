@@ -69,7 +69,7 @@ pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Securit
             // Fetch fix versions from detail endpoint
             let detail_cache = fetch_fix_versions(&vuln_ids_to_fetch);
 
-            // Backfill fix_version into results
+            // Backfill fix_version and filter out vulns already fixed by installed version
             for (path, info) in results.iter_mut() {
                 let pkg = packages.iter().find(|(p, _)| p == path).map(|(_, id)| id);
                 if let Some(pkg) = pkg {
@@ -78,8 +78,17 @@ pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Securit
                             vuln.fix_version = osv::extract_fix_version(detail, &pkg.name, pkg.ecosystem, &pkg.version);
                         }
                     }
+                    // Remove vulns where the fix version is <= installed version
+                    info.vulns.retain(|vuln| {
+                        match &vuln.fix_version {
+                            Some(fix) => !osv::version_lte(fix, &pkg.version),
+                            None => true, // keep vulns with unknown fix version
+                        }
+                    });
                 }
             }
+            // Remove entries with no remaining vulns
+            results.retain(|_, info| !info.vulns.is_empty());
         }
         Err(_) => {}
     }

@@ -177,7 +177,7 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 /// Check if version a <= version b.
-fn version_lte(a: &str, b: &str) -> bool {
+pub fn version_lte(a: &str, b: &str) -> bool {
     compare_versions(a, b) != std::cmp::Ordering::Greater
 }
 
