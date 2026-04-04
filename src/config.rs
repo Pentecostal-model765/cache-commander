@@ -17,6 +17,14 @@ pub struct Cli {
     /// Skip delete confirmation
     #[arg(long)]
     pub no_confirm: bool,
+
+    /// Enable vulnerability scanning
+    #[arg(long)]
+    pub vulncheck: bool,
+
+    /// Enable version checking
+    #[arg(long)]
+    pub versioncheck: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -57,11 +65,37 @@ impl SortField {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct VulncheckConfig {
+    pub enabled: bool,
+}
+
+impl Default for VulncheckConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct VersioncheckConfig {
+    pub enabled: bool,
+}
+
+impl Default for VersioncheckConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub roots: Vec<PathBuf>,
     pub sort_by: SortField,
     pub sort_desc: bool,
     pub confirm_delete: bool,
+    pub vulncheck: VulncheckConfig,
+    pub versioncheck: VersioncheckConfig,
 }
 
 impl Default for Config {
@@ -86,6 +120,8 @@ impl Default for Config {
             sort_by: SortField::Size,
             sort_desc: true,
             confirm_delete: true,
+            vulncheck: VulncheckConfig::default(),
+            versioncheck: VersioncheckConfig::default(),
         }
     }
 }
@@ -106,6 +142,12 @@ impl Config {
         }
         if cli.no_confirm {
             config.confirm_delete = false;
+        }
+        if cli.vulncheck {
+            config.vulncheck.enabled = true;
+        }
+        if cli.versioncheck {
+            config.versioncheck.enabled = true;
         }
 
         // Expand tildes
@@ -263,5 +305,34 @@ mod tests {
         let config = Config::default();
         let has_library = config.roots.iter().any(|r| r.to_string_lossy().contains("Library/Caches"));
         assert!(has_library, "Default config should include ~/Library/Caches on macOS");
+    }
+
+    #[test]
+    fn config_deserialize_vulncheck_enabled() {
+        let toml_str = r#"
+            [vulncheck]
+            enabled = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.vulncheck.enabled);
+        assert!(!config.versioncheck.enabled);
+    }
+
+    #[test]
+    fn config_deserialize_versioncheck_enabled() {
+        let toml_str = r#"
+            [versioncheck]
+            enabled = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.versioncheck.enabled);
+        assert!(!config.vulncheck.enabled);
+    }
+
+    #[test]
+    fn config_both_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.vulncheck.enabled);
+        assert!(!config.versioncheck.enabled);
     }
 }

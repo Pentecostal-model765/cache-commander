@@ -69,6 +69,7 @@ fn test_app() -> App {
         sort_by: SortField::Size,
         sort_desc: true,
         confirm_delete: true,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
@@ -245,6 +246,7 @@ fn key_d_without_confirm_deletes_immediately() {
         sort_by: SortField::Size,
         sort_desc: true,
         confirm_delete: false,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
@@ -296,6 +298,7 @@ fn delete_mode_y_confirms() {
         sort_by: SortField::Size,
         sort_desc: true,
         confirm_delete: true,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
@@ -377,6 +380,7 @@ fn bulk_delete_multiple_marked_items() {
         sort_by: SortField::Name,
         sort_desc: false,
         confirm_delete: false,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
@@ -430,6 +434,7 @@ fn bulk_delete_with_confirm_dialog() {
         sort_by: SortField::Name,
         sort_desc: false,
         confirm_delete: true,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
@@ -479,6 +484,7 @@ fn delete_uses_paths_not_stale_indices() {
         sort_by: SortField::Name,
         sort_desc: false,
         confirm_delete: false,
+        ..Default::default()
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
