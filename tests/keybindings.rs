@@ -724,3 +724,135 @@ fn key_shift_r_reinits() {
     // For now just verify it doesn't crash
     assert!(nodes_before > 0);
 }
+
+// === Vulnerability & Version Check ===
+
+#[test]
+fn key_v_disabled_shows_message() {
+    let mut app = test_app(); // vulncheck.enabled = false by default
+    app.process_key(key(KeyCode::Char('v')));
+    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+}
+
+#[test]
+fn key_shift_v_disabled_shows_message() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('V')));
+    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+}
+
+#[test]
+fn key_o_disabled_shows_message() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('o')));
+    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+}
+
+#[test]
+fn key_shift_o_disabled_shows_message() {
+    let mut app = test_app();
+    app.process_key(key(KeyCode::Char('O')));
+    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+}
+
+#[test]
+fn vuln_propagates_to_ancestors() {
+    let mut app = test_app_with_children();
+    // Simulate a vuln result on a child node
+    let child_path = app.tree.nodes[1].path.clone();
+    app.vuln_results.insert(
+        child_path,
+        ccmd::security::SecurityInfo {
+            vulns: vec![ccmd::security::Vulnerability {
+                id: "CVE-2023-1234".into(),
+                summary: "test vuln".into(),
+                severity: Some("7.5".into()),
+            }],
+        },
+    );
+    app.recompute_node_status();
+
+    // Child should have vuln
+    let child_path = app.tree.nodes[1].path.clone();
+    assert!(app.node_status.get(&child_path).unwrap().has_vuln);
+
+    // Parent (root) should inherit vuln status
+    let parent_path = app.tree.nodes[0].path.clone();
+    assert!(
+        app.node_status.get(&parent_path).unwrap().has_vuln,
+        "Parent should inherit vuln from child"
+    );
+}
+
+#[test]
+fn outdated_propagates_to_ancestors() {
+    let mut app = test_app_with_children();
+    let child_path = app.tree.nodes[1].path.clone();
+    app.version_results.insert(
+        child_path,
+        ccmd::security::VersionInfo {
+            current: "1.0.0".into(),
+            latest: "2.0.0".into(),
+            is_outdated: true,
+        },
+    );
+    app.recompute_node_status();
+
+    // Parent should inherit outdated status
+    let parent_path = app.tree.nodes[0].path.clone();
+    assert!(
+        app.node_status.get(&parent_path).unwrap().has_outdated,
+        "Parent should inherit outdated from child"
+    );
+}
+
+#[test]
+fn current_version_does_not_propagate() {
+    let mut app = test_app_with_children();
+    let child_path = app.tree.nodes[1].path.clone();
+    app.version_results.insert(
+        child_path,
+        ccmd::security::VersionInfo {
+            current: "2.0.0".into(),
+            latest: "2.0.0".into(),
+            is_outdated: false,
+        },
+    );
+    app.recompute_node_status();
+
+    // Parent should NOT have outdated status
+    let parent_path = app.tree.nodes[0].path.clone();
+    let parent_status = app.node_status.get(&parent_path);
+    assert!(
+        parent_status.is_none() || !parent_status.unwrap().has_outdated,
+        "Current version should not propagate outdated to parent"
+    );
+}
+
+#[test]
+fn node_status_cleared_on_recompute() {
+    let mut app = test_app_with_children();
+    let child_path = app.tree.nodes[1].path.clone();
+
+    // First: add a vuln
+    app.vuln_results.insert(
+        child_path.clone(),
+        ccmd::security::SecurityInfo {
+            vulns: vec![ccmd::security::Vulnerability {
+                id: "CVE-2023-1234".into(),
+                summary: "test".into(),
+                severity: None,
+            }],
+        },
+    );
+    app.recompute_node_status();
+    assert!(app.node_status.get(&child_path).unwrap().has_vuln);
+
+    // Then: remove the vuln and recompute
+    app.vuln_results.clear();
+    app.recompute_node_status();
+    assert!(
+        app.node_status.get(&child_path).is_none(),
+        "Status should be cleared after removing vuln results"
+    );
+}
