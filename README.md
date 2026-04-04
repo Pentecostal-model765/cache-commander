@@ -1,56 +1,42 @@
 # ccmd — Cache Commander
 
-A terminal UI for browsing and managing cache directories on macOS and Linux.
+A terminal UI for exploring, auditing, and cleaning cache directories on macOS and Linux.
 
-Developer machines accumulate tens of gigabytes of invisible cache data. `ccmd` makes it visible, understandable, and deletable.
+Developer machines accumulate tens of gigabytes of invisible cache data — ML models, package archives, build artifacts, downloaded bottles. `ccmd` makes it all visible, scannable for vulnerabilities, and safely deletable.
 
 ```
-  ╔═╗╔═╗╔╦╗╔╦╗
-  ║  ║  ║║║ ║║  cache commander
-  ╚═╝╚═╝╩ ╩═╩╝  49.5 GiB  │  4 roots  │  sort: size ↓  │  ? help
-  ──────────────────────────────────────────────────────────────────
-  ▾ ~/.cache       49.9 GB   │ huggingface
-    ▾ huggingface  29.0 GB   │ ~/.cache/huggingface
-      hub/         19.0 GB   │
-        [model] meta-llama/… │ Size:     29.0 GB
-        [model] openai/whi…  │ Provider: HuggingFace Hub
-      xet/          9.3 GB   │
-    ▸ pre-commit    5.0 GB   │ ● Safe to delete
-    ▸ whisper       4.4 GB   │
-  ▸ ~/Library      11.0 GB   │
-  ──────────────────────────────────────────────────────────────────
-  ↑↓ navigate  ←→ expand  d delete  s sort  r refresh  / search
+ ██████╗ █████╗  ██████╗██╗  ██╗███████╗  ██████╗ ██████╗ ███╗   ███╗███╗   ███╗ █████╗ ███╗   ██╗██████╗ ███████╗██████╗
+██╔════╝██╔══██╗██╔════╝██║  ██║██╔════╝ ██╔════╝██╔═══██╗████╗ ████║████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝██╔══██╗
+██║     ███████║██║     ███████║█████╗   ██║     ██║   ██║██╔████╔██║██╔████╔██║███████║██╔██╗ ██║██║  ██║█████╗  ██████╔╝
+██║     ██╔══██║██║     ██╔══██║██╔══╝   ██║     ██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗
+╚██████╗██║  ██║╚██████╗██║  ██║███████╗ ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝███████╗██║  ██║
+ ╚═════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝  ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
+48.2 GiB  │  4 roots  │  sort: size ↓  │  ⚠ 12 vulns  │  ↓ 8 outdated  │  ? help
+─────────────────────────────────────────────────────────────────────────────────────
+▾ ~/.cache                    38.1 GiB  │  VULNERABILITIES (2)
+  ▾ huggingface               29.0 GiB  │    ⚠ CVE-2023-32681 (7.5)
+    ▸ hub                     19.0 GiB  │      Unintended leak of Proxy-Auth header
+    ▸ xet                      9.3 GiB  │      Fix: ≥2.32.0
+  ▾ ⚠↓uv                      4.1 GiB  │      → pip install requests>=2.32.0
+    ▾ ⚠↓Built Wheels         162 KiB   │      osv.dev/vulnerability/CVE-2023-32681
+      ▾ ⚠↓pypi               162 KiB   │
+        ⚠ requests 2.31.0    1.2 MB    │  VERSION
+        ↓ flask 3.0.0        890 KB    │    Current  2.31.0  →  2.32.3
+▸ ~/Library/Caches             9.8 GiB  │
+▸ ~/.npm                     366 MiB    │  ACTION
+▸ ~/.cargo/registry           81 MiB    │    ○ Delete to force re-download of patched version
+─────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate  ←→ expand  Space mark  d delete  s sort  / search  f filter  m mark all
 ```
 
-## Features
+## Why
 
-- **Browse** cache directories in a navigable tree view
-- **App-aware** — understands HuggingFace, pip, uv, npm, Homebrew, Cargo, pre-commit, Whisper, GitHub CLI, PyTorch, Chroma, and Prisma
-- **Semantic names** — shows `[model] meta-llama/Llama-3.1-8B` instead of `models--meta-llama--Llama-3.1-8B`, decodes hashes across all providers
-- **Safety indicators** — green/yellow/red safety levels for each cache entry
-- **Sort** by size, name, or last modified
-- **Filter** with `/` — case-insensitive search across the tree
-- **Delete** individual items or bulk-select with confirmation dialog
-- **Fast** — instant tree rendering with async background size computation
-- **Configurable** — TOML config file + CLI flags
-- **Lightweight** — ~2 MB binary, no runtime dependencies
+- **ML models** (HuggingFace, PyTorch, Whisper) — tens of GB you forgot about
+- **Package caches** (pip, uv, npm, Cargo, Homebrew) — old versions with known CVEs
+- **npm supply chain risk** — transitive deps with install scripts hiding in npx cache
+- **Build artifacts** (pre-commit hooks, Prisma engines) — stale and re-downloadable
 
-## Supported Caches
-
-| Cache | Location | What it shows |
-|-------|----------|---------------|
-| HuggingFace | `~/.cache/huggingface` | Model/dataset names, revisions, blob file names |
-| pip | `~/.cache/pip` | Wheel packages, HTTP cache |
-| uv | `~/.cache/uv` | Package names via dist-info, build artifacts |
-| npm | `~/.npm` | npx package names, content cache |
-| Homebrew | `~/Library/Caches/Homebrew` | Downloaded bottles, casks, API cache |
-| Cargo | `~/.cargo/registry` | Crate names and versions |
-| pre-commit | `~/.cache/pre-commit` | Repo names via git remote |
-| Whisper | `~/.cache/whisper` | Model names (Large v3, Tiny, etc.) |
-| GitHub CLI | `~/.cache/gh` | Workflow run log IDs |
-| PyTorch | `~/.cache/torch` | Model checkpoint names |
-| Chroma | `~/.cache/chroma` | Embedding model names |
-| Prisma | `~/.cache/prisma` | Engine versions, platforms |
+`ccmd` gives you a single view across all of them with security scanning built in.
 
 ## Install
 
@@ -61,37 +47,101 @@ cargo install --path .
 Or build from source:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ccmd
+git clone https://github.com/julsimon/ccmd
 cd ccmd
 cargo build --release
 ./target/release/ccmd
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-ccmd                          # scan default cache locations
-ccmd --root ~/.cache          # scan a specific root
-ccmd --sort name              # sort by name instead of size
-ccmd --no-confirm             # skip delete confirmation
+ccmd                            # browse all default cache locations
+ccmd --vulncheck                # scan for CVEs on startup
+ccmd --versioncheck             # check for outdated packages on startup
+ccmd --root ~/.cache/huggingface  # scan a specific directory
 ```
+
+## Features
+
+### Browse and Understand
+
+- **Two-pane TUI** — navigable tree on the left, details on the right
+- **12 cache providers** — semantic names instead of hash directories
+- **Safety levels** — green (safe to delete), yellow (may cause rebuilds), red (contains state)
+- **Sort** by size, name, or last modified
+- **Search** with `/` — case-insensitive filter across the tree
+
+### Security Scanning
+
+- **Vulnerability scanning** — queries [OSV.dev](https://osv.dev) for known CVEs in cached packages
+- **Version checking** — compares cached versions against PyPI, crates.io, and npm registries
+- **Fix versions** — shows which version resolves each CVE, with upgrade commands
+- **npm supply chain** — scans transitive deps in npx cache, flags packages with install scripts
+- **Filter by status** — dim non-vulnerable items to focus on what matters
+- **Copy upgrade command** — press `c` to copy `pip install pkg>=version` to clipboard
+
+### Clean Up
+
+- **Mark and delete** — Space to mark, `d` to delete with confirmation
+- **Bulk mark** — `m` marks all visible (non-dimmed) items after filtering
+- **Workflow**: scan (`V`) → filter (`f`) → mark all (`m`) → delete (`d`)
+
+## Supported Caches
+
+| Provider | Location | Semantic names |
+|----------|----------|----------------|
+| HuggingFace | `~/.cache/huggingface` | Model/dataset names, revisions |
+| pip | `~/.cache/pip` | Wheel packages |
+| uv | `~/.cache/uv` | Package names via dist-info |
+| npm | `~/.npm` | npx packages + transitive node_modules deps |
+| Homebrew | `~/Library/Caches/Homebrew` | Bottles, casks |
+| Cargo | `~/.cargo/registry` | Crate names and versions |
+| pre-commit | `~/.cache/pre-commit` | Hook repo names |
+| Whisper | `~/.cache/whisper` | Model names (Large v3, Tiny, etc.) |
+| GitHub CLI | `~/.cache/gh` | Workflow run logs |
+| PyTorch | `~/.cache/torch` | Model checkpoints |
+| Chroma | `~/.cache/chroma` | Embedding models |
+| Prisma | `~/.cache/prisma` | Engine versions |
 
 ## Key Bindings
 
+### Navigation
+
 | Key | Action |
 |-----|--------|
-| `↑`/`k`, `↓`/`j` | Navigate |
-| `→`/`l`, `←`/`h` | Expand / Collapse |
+| `↑`/`k` `↓`/`j` | Move up / down |
+| `→`/`l` `←`/`h` | Expand / Collapse (or go to parent) |
 | `Enter` | Toggle expand |
 | `g` / `G` | Jump to top / bottom |
-| `Space` | Mark for bulk delete |
-| `d` | Delete selected |
-| `D` | Delete all marked |
+| `/` | Search — type to filter, Enter to keep, Esc to clear |
+
+### Security
+
+| Key | Action |
+|-----|--------|
+| `v` / `V` | Scan selected / all for CVEs |
+| `o` / `O` | Check selected / all for outdated versions |
+| `f` | Cycle status filter: none → vuln → outdated → both |
+| `c` | Copy upgrade command to clipboard |
+
+### Marking and Deleting
+
+| Key | Action |
+|-----|--------|
+| `Space` | Mark / unmark item |
+| `m` | Mark all visible items (with confirmation) |
+| `u` | Unmark all |
+| `d` / `D` | Delete marked items |
+
+### Other
+
+| Key | Action |
+|-----|--------|
 | `s` | Cycle sort (size → name → modified) |
 | `r` / `R` | Refresh selected / all |
-| `/` | Search / filter |
-| `?` | Help |
-| `q` | Quit |
+| `?` | Help overlay |
+| `q` / `Ctrl+C` | Quit |
 
 ## Configuration
 
@@ -99,12 +149,87 @@ Create `~/.config/ccmd/config.toml`:
 
 ```toml
 roots = ["~/.cache", "~/Library/Caches", "~/.npm", "~/.cargo/registry"]
-sort_by = "size"
+sort_by = "size"          # size | name | modified
 sort_desc = true
 confirm_delete = true
+
+[vulncheck]
+enabled = false           # set true to scan on startup
+
+[versioncheck]
+enabled = false           # set true to check on startup
 ```
 
-CLI flags override config file settings.
+CLI flags override config file values.
+
+## How It Works
+
+### Cache Detection
+
+`ccmd` walks your cache directories and identifies providers by directory name and structure. Each provider has custom logic to decode semantic names — for example, HuggingFace stores models in directories like `models--meta-llama--Llama-3.1-8B`, which ccmd displays as `[model] meta-llama/Llama-3.1-8B`.
+
+### Vulnerability Scanning
+
+When you press `V` (or pass `--vulncheck`):
+
+1. `ccmd` walks the cache tree to discover packages with identifiable name + version
+2. Sends a batch query to the [OSV.dev API](https://osv.dev) (chunked to 100 packages per request)
+3. For each vulnerability found, fetches the detailed advisory to extract fix versions
+4. Filters out vulnerabilities already fixed by the installed version
+5. Displays results in the detail panel with fix version, upgrade command, and advisory link
+
+### npm Supply Chain Detection
+
+The npx cache (`~/.npm/_npx/`) contains full `node_modules` trees. `ccmd` scans every transitive dependency for:
+
+- **Known CVEs** via OSV.dev
+- **Install scripts** (`preinstall`, `install`, `postinstall`) — the primary vector for supply chain attacks
+- **Dependency depth** — whether a package is a direct dependency or deep transitive
+
+### Filter and Clean Workflow
+
+The intended workflow for cleaning vulnerable packages:
+
+1. **Scan**: Press `V` to scan all packages for CVEs
+2. **Filter**: Press `f` to show only vulnerable items (non-matching items are dimmed)
+3. **Review**: Navigate to see fix versions and upgrade commands
+4. **Mark**: Press `m` to mark all vulnerable items for deletion
+5. **Delete**: Press `d` to delete — frees space and forces fresh downloads
+
+## Architecture
+
+```
+src/
+├── main.rs              # CLI bootstrap, terminal setup
+├── config.rs            # TOML config + CLI flag merging
+├── app.rs               # Event loop, key handling, rendering
+├── tree/
+│   ├── node.rs          # TreeNode, CacheKind enum
+│   └── state.rs         # TreeState, FilterMode, visibility, marking
+├── scanner/
+│   ├── mod.rs           # Background scan orchestrator, package discovery
+│   └── walker.rs        # Directory traversal, size calculation
+├── providers/
+│   ├── mod.rs           # Provider dispatch, safety levels, upgrade commands
+│   ├── huggingface.rs   # HuggingFace Hub semantic decoding
+│   ├── pip.rs, uv.rs    # Python package providers
+│   ├── npm.rs           # npm + npx + node_modules scanning
+│   ├── cargo.rs         # Rust crate provider
+│   └── ...              # 7 more providers
+├── security/
+│   ├── mod.rs           # Scan orchestration, vulnerability filtering
+│   ├── osv.rs           # OSV.dev API, version comparison, fix extraction
+│   └── registry.rs      # PyPI, crates.io, npm registry lookups
+└── ui/
+    ├── tree_panel.rs    # Left pane — tree with status icons
+    ├── detail_panel.rs  # Right pane — metadata, vulns, guidance
+    ├── dialogs.rs       # Delete confirmation, help overlay
+    └── theme.rs         # Color and style constants
+```
+
+- **No async runtime** — pure `std::thread` + `mpsc::channel`
+- **Flat arena tree** — avoids recursive structs and borrow checker issues
+- **Background scanning** — UI stays responsive during API calls and directory walks
 
 ## License
 
