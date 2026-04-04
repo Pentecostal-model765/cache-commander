@@ -9,6 +9,11 @@ homepage = "https://github.com/juliensimon/cache-commander"
 keywords = ["cache", "tui", "disk-space", "cleanup"]
 categories = ["command-line-utilities"]
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"

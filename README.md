@@ -62,6 +62,12 @@ brew install ccmd
 cargo install ccmd
 ```
 
+### With cargo-binstall (prebuilt, no compile)
+
+```bash
+cargo binstall ccmd
+```
+
 ### From source
 
 ```bash
