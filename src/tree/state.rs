@@ -2,6 +2,35 @@ use super::node::TreeNode;
 use crate::config::SortField;
 use std::collections::HashSet;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    #[default]
+    None,
+    Vuln,
+    Outdated,
+    Both,
+}
+
+impl FilterMode {
+    pub fn cycle(&self) -> Self {
+        match self {
+            Self::None => Self::Vuln,
+            Self::Vuln => Self::Outdated,
+            Self::Outdated => Self::Both,
+            Self::Both => Self::None,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Vuln => "⚠ vuln",
+            Self::Outdated => "↓ outdated",
+            Self::Both => "⚠↓ vuln+outdated",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TreeState {
     pub nodes: Vec<TreeNode>,
@@ -13,6 +42,8 @@ pub struct TreeState {
     pub sort_by: SortField,
     pub sort_desc: bool,
     pub filter: String,
+    pub filter_mode: FilterMode,
+    pub dimmed: HashSet<usize>,
 }
 
 impl TreeState {
@@ -27,6 +58,8 @@ impl TreeState {
             sort_by,
             sort_desc,
             filter: String::new(),
+            filter_mode: FilterMode::None,
+            dimmed: HashSet::new(),
         }
     }
 
@@ -36,6 +69,8 @@ impl TreeState {
         self.marked.clear();
         self.selected = 0;
         self.scroll_offset = 0;
+        self.dimmed.clear();
+        self.filter_mode = FilterMode::None;
         self.recompute_visible();
     }
 
@@ -483,6 +518,35 @@ impl TreeState {
             self.scroll_offset = self.selected;
         } else if self.selected >= self.scroll_offset + viewport_height {
             self.scroll_offset = self.selected - viewport_height + 1;
+        }
+    }
+
+    pub fn recompute_dimmed(
+        &mut self,
+        node_status: &std::collections::HashMap<std::path::PathBuf, crate::security::NodeStatus>,
+    ) {
+        self.dimmed.clear();
+        if self.filter_mode == FilterMode::None {
+            return;
+        }
+        let mut matches_filter: HashSet<usize> = HashSet::new();
+        for &idx in &self.visible {
+            let node = &self.nodes[idx];
+            let status = node_status.get(&node.path);
+            let matches = match self.filter_mode {
+                FilterMode::None => true,
+                FilterMode::Vuln => status.map_or(false, |s| s.has_vuln),
+                FilterMode::Outdated => status.map_or(false, |s| s.has_outdated),
+                FilterMode::Both => status.map_or(false, |s| s.has_vuln || s.has_outdated),
+            };
+            if matches {
+                matches_filter.insert(idx);
+            }
+        }
+        for &idx in &self.visible {
+            if !matches_filter.contains(&idx) {
+                self.dimmed.insert(idx);
+            }
         }
     }
 }

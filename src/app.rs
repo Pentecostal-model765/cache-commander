@@ -232,6 +232,19 @@ impl App {
                 }
             }
             KeyCode::Char('s') => self.tree.cycle_sort(),
+            KeyCode::Char('f') => {
+                if self.node_status.is_empty() {
+                    self.status_msg = Some("Run vuln scan (v/V) or version check (o/O) first".into());
+                } else {
+                    self.tree.filter_mode = self.tree.filter_mode.cycle();
+                    self.tree.recompute_dimmed(&self.node_status);
+                    if self.tree.filter_mode != crate::tree::state::FilterMode::None {
+                        self.status_msg = Some(format!("Filter: {}", self.tree.filter_mode.label()));
+                    } else {
+                        self.status_msg = Some("Filter cleared".into());
+                    }
+                }
+            }
             KeyCode::Char('r') => {
                 if let Some(idx) = self.tree.selected_node_index() {
                     let path = self.tree.nodes[idx].path.clone();

@@ -611,6 +611,39 @@ fn filter_is_case_insensitive() {
     assert!(visible_names.contains(&"child-big"), "Case-insensitive filter should match: {:?}", visible_names);
 }
 
+// === Filter Mode ===
+
+#[test]
+fn key_f_cycles_filter_mode_with_status_data() {
+    let mut app = test_app();
+    // Populate node_status so filter mode is allowed
+    app.node_status.insert(
+        PathBuf::from("/test/alpha"),
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
+
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Outdated);
+
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Both);
+
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::None);
+}
+
+#[test]
+fn key_f_without_status_data_shows_message() {
+    let mut app = test_app();
+    // node_status is empty
+    app.process_key(key(KeyCode::Char('f')));
+    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::None);
+    assert!(app.status_msg.as_ref().unwrap().contains("scan"));
+}
+
 // === Help ===
 
 #[test]
