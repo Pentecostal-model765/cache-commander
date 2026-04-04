@@ -64,4 +64,24 @@ mod tests {
     fn parse_invalid_json_returns_none() {
         assert_eq!(parse_pypi_latest("not json"), None);
     }
+
+    #[test]
+    fn parse_pypi_missing_info_key() {
+        assert_eq!(parse_pypi_latest(r#"{"other": "data"}"#), None);
+    }
+
+    #[test]
+    fn parse_pypi_null_version() {
+        assert_eq!(parse_pypi_latest(r#"{"info": {"version": null}}"#), None);
+    }
+
+    #[test]
+    fn parse_crates_io_missing_crate_key() {
+        assert_eq!(parse_crates_io_latest(r#"{"other": "data"}"#), None);
+    }
+
+    #[test]
+    fn parse_npm_empty_version() {
+        assert_eq!(parse_npm_latest(r#"{"version": ""}"#), Some("".to_string()));
+    }
 }
