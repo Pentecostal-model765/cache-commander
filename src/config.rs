@@ -4,7 +4,11 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
-#[command(name = "ccmd", version, about = "Cache Commander — browse and manage cache directories")]
+#[command(
+    name = "ccmd",
+    version,
+    about = "Cache Commander — browse and manage cache directories"
+)]
 pub struct Cli {
     /// Cache root directories to scan (can be specified multiple times)
     #[arg(long = "root", short = 'r')]
@@ -181,7 +185,10 @@ mod tests {
     fn sort_field_from_str_valid() {
         assert_eq!(SortField::from_str_opt("size"), Some(SortField::Size));
         assert_eq!(SortField::from_str_opt("name"), Some(SortField::Name));
-        assert_eq!(SortField::from_str_opt("modified"), Some(SortField::Modified));
+        assert_eq!(
+            SortField::from_str_opt("modified"),
+            Some(SortField::Modified)
+        );
     }
 
     #[test]
@@ -267,8 +274,8 @@ mod tests {
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.roots.len(), 1);
         assert_eq!(config.sort_by, SortField::Size); // default
-        assert!(config.sort_desc);                    // default
-        assert!(config.confirm_delete);               // default
+        assert!(config.sort_desc); // default
+        assert!(config.confirm_delete); // default
     }
 
     #[test]
@@ -283,7 +290,10 @@ mod tests {
     #[test]
     fn config_default_has_cache_root() {
         let config = Config::default();
-        let has_cache = config.roots.iter().any(|r| r.to_string_lossy().contains(".cache"));
+        let has_cache = config
+            .roots
+            .iter()
+            .any(|r| r.to_string_lossy().contains(".cache"));
         assert!(has_cache, "Default config should include ~/.cache");
     }
 
@@ -291,8 +301,14 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn config_default_has_library_caches_on_macos() {
         let config = Config::default();
-        let has_library = config.roots.iter().any(|r| r.to_string_lossy().contains("Library/Caches"));
-        assert!(has_library, "Default config should include ~/Library/Caches on macOS");
+        let has_library = config
+            .roots
+            .iter()
+            .any(|r| r.to_string_lossy().contains("Library/Caches"));
+        assert!(
+            has_library,
+            "Default config should include ~/Library/Caches on macOS"
+        );
     }
 
     #[test]

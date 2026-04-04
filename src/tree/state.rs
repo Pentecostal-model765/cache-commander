@@ -403,21 +403,31 @@ impl TreeState {
                 SortField::Name => a[0].name.to_lowercase().cmp(&b[0].name.to_lowercase()),
                 SortField::Modified => a[0].last_modified.cmp(&b[0].last_modified),
             };
-            if sort_desc { ord.reverse() } else { ord }
+            if sort_desc {
+                ord.reverse()
+            } else {
+                ord
+            }
         });
 
         // Save expanded/marked paths for remapping
-        let expanded_paths: HashSet<std::path::PathBuf> = self.expanded.iter()
+        let expanded_paths: HashSet<std::path::PathBuf> = self
+            .expanded
+            .iter()
             .filter(|&&idx| idx >= subtree_start && idx < subtree_end)
             .map(|&idx| self.nodes[idx].path.clone())
             .collect();
-        let marked_paths: HashSet<std::path::PathBuf> = self.marked.iter()
+        let marked_paths: HashSet<std::path::PathBuf> = self
+            .marked
+            .iter()
             .filter(|&&idx| idx >= subtree_start && idx < subtree_end)
             .map(|&idx| self.nodes[idx].path.clone())
             .collect();
 
-        self.expanded.retain(|&idx| idx < subtree_start || idx >= subtree_end);
-        self.marked.retain(|&idx| idx < subtree_start || idx >= subtree_end);
+        self.expanded
+            .retain(|&idx| idx < subtree_start || idx >= subtree_end);
+        self.marked
+            .retain(|&idx| idx < subtree_start || idx >= subtree_end);
 
         // Rebuild with correct parent references
         let mut new_section: Vec<TreeNode> = Vec::new();
@@ -431,9 +441,7 @@ impl TreeState {
                     // Walk backwards in new_section to find nearest ancestor at depth-1
                     let target_depth = n.depth - 1;
                     for j in (0..new_section.len()).rev() {
-                        if new_section[j].depth == target_depth
-                            && (subtree_start + j) >= base
-                        {
+                        if new_section[j].depth == target_depth && (subtree_start + j) >= base {
                             n.parent = Some(subtree_start + j);
                             break;
                         }
@@ -487,10 +495,19 @@ impl TreeState {
         root_indices.sort_by(|&a, &b| {
             let ord = match sort_by {
                 SortField::Size => self.nodes[a].size.cmp(&self.nodes[b].size),
-                SortField::Name => self.nodes[a].name.to_lowercase().cmp(&self.nodes[b].name.to_lowercase()),
-                SortField::Modified => self.nodes[a].last_modified.cmp(&self.nodes[b].last_modified),
+                SortField::Name => self.nodes[a]
+                    .name
+                    .to_lowercase()
+                    .cmp(&self.nodes[b].name.to_lowercase()),
+                SortField::Modified => self.nodes[a]
+                    .last_modified
+                    .cmp(&self.nodes[b].last_modified),
             };
-            if sort_desc { ord.reverse() } else { ord }
+            if sort_desc {
+                ord.reverse()
+            } else {
+                ord
+            }
         });
 
         let already_sorted = root_indices.windows(2).all(|w| w[0] < w[1]);
@@ -498,7 +515,10 @@ impl TreeState {
             return;
         }
 
-        let cloned: Vec<TreeNode> = root_indices.iter().map(|&i| self.nodes[i].clone()).collect();
+        let cloned: Vec<TreeNode> = root_indices
+            .iter()
+            .map(|&i| self.nodes[i].clone())
+            .collect();
         for (pos, &orig_idx) in root_indices.iter().enumerate() {
             self.nodes[orig_idx] = cloned[pos].clone();
         }
@@ -777,9 +797,7 @@ mod tests {
     #[test]
     fn toggle_expand_collapse_hides_children() {
         let mut tree = tree_with_roots();
-        tree.insert_children(0, vec![
-            make_node("child", 100, 1, Some(0)),
-        ]);
+        tree.insert_children(0, vec![make_node("child", 100, 1, Some(0))]);
         tree.expanded.insert(0);
         tree.recompute_visible();
         assert_eq!(tree.visible.len(), 4);
@@ -809,9 +827,7 @@ mod tests {
     #[test]
     fn collapse_moves_to_parent_when_not_expanded() {
         let mut tree = tree_with_roots();
-        tree.insert_children(0, vec![
-            make_node("child", 100, 1, Some(0)),
-        ]);
+        tree.insert_children(0, vec![make_node("child", 100, 1, Some(0))]);
         tree.expanded.insert(0);
         tree.recompute_visible();
 
@@ -830,9 +846,12 @@ mod tests {
     fn insert_children_sets_depth() {
         let mut tree = tree_with_roots();
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("child", 100, 99, Some(0)), // depth=99 should get corrected
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("child", 100, 99, Some(0)), // depth=99 should get corrected
+            ],
+        );
         assert_eq!(tree.nodes[1].depth, 1); // parent depth=0, so child=1
     }
 
@@ -907,17 +926,13 @@ mod tests {
 
         // Expand root, insert children
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("level-1", 500, 1, Some(0)),
-        ]);
+        tree.insert_children(0, vec![make_node("level-1", 500, 1, Some(0))]);
 
         assert_eq!(tree.visible.len(), 2);
 
         // Expand level-1, insert grandchild
         tree.expanded.insert(1);
-        tree.insert_children(1, vec![
-            make_leaf("level-2", 100, 2, Some(1)),
-        ]);
+        tree.insert_children(1, vec![make_leaf("level-2", 100, 2, Some(1))]);
 
         assert_eq!(tree.visible.len(), 3);
         assert_eq!(tree.visible_names(), vec!["root", "level-1", "level-2"]);
@@ -961,10 +976,13 @@ mod tests {
     fn remove_node_with_children_removes_subtree() {
         let mut tree = tree_with_roots();
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("child-1", 100, 1, Some(0)),
-            make_node("child-2", 200, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("child-1", 100, 1, Some(0)),
+                make_node("child-2", 200, 1, Some(0)),
+            ],
+        );
         // Tree: root-a, child-1, child-2, root-b, root-c
 
         tree.remove_nodes(&[0]); // remove root-a and its children
@@ -977,9 +995,7 @@ mod tests {
     fn remove_adjusts_parent_references() {
         let mut tree = tree_with_roots();
         tree.expanded.insert(1); // expand root-b
-        tree.insert_children(1, vec![
-            make_node("child-of-b", 100, 1, Some(1)),
-        ]);
+        tree.insert_children(1, vec![make_node("child-of-b", 100, 1, Some(1))]);
 
         // Remove root-a (index 0) — root-b shifts to 0, child shifts too
         tree.remove_nodes(&[0]);
@@ -1017,11 +1033,14 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("small", 100, 1, Some(0)),
-            make_node("big", 900, 1, Some(0)),
-            make_node("medium", 500, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("small", 100, 1, Some(0)),
+                make_node("big", 900, 1, Some(0)),
+                make_node("medium", 500, 1, Some(0)),
+            ],
+        );
 
         // Children should be sorted by size descending
         let child_names: Vec<&str> = tree.nodes[1..4].iter().map(|n| n.name.as_str()).collect();
@@ -1033,11 +1052,14 @@ mod tests {
         let mut tree = TreeState::new(SortField::Name, false);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("cherry", 100, 1, Some(0)),
-            make_node("apple", 200, 1, Some(0)),
-            make_node("banana", 300, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("cherry", 100, 1, Some(0)),
+                make_node("apple", 200, 1, Some(0)),
+                make_node("banana", 300, 1, Some(0)),
+            ],
+        );
 
         let child_names: Vec<&str> = tree.nodes[1..4].iter().map(|n| n.name.as_str()).collect();
         assert_eq!(child_names, vec!["apple", "banana", "cherry"]);
@@ -1051,11 +1073,14 @@ mod tests {
         tree.expanded.insert(0);
 
         // Insert children — they'll be sorted by name asc on insert
-        tree.insert_children(0, vec![
-            make_node("huggingface", 5000, 1, Some(0)),
-            make_node("selenium", 100, 1, Some(0)),
-            make_node("whisper", 3000, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("huggingface", 5000, 1, Some(0)),
+                make_node("selenium", 100, 1, Some(0)),
+                make_node("whisper", 3000, 1, Some(0)),
+            ],
+        );
         // After name-asc sort: root(0), hf(1), selenium(2), whisper(3)
         assert_eq!(tree.nodes[1].name, "huggingface");
         assert_eq!(tree.nodes[2].name, "selenium");
@@ -1064,10 +1089,13 @@ mod tests {
         // Expand huggingface and add grandchildren
         tree.expanded.insert(1);
         tree.nodes[1].children_loaded = false;
-        tree.insert_children(1, vec![
-            make_leaf("hub", 4000, 2, Some(1)),
-            make_leaf("xet", 1000, 2, Some(1)),
-        ]);
+        tree.insert_children(
+            1,
+            vec![
+                make_leaf("hub", 4000, 2, Some(1)),
+                make_leaf("xet", 1000, 2, Some(1)),
+            ],
+        );
         // Tree: root(0), hf(1), hub(2), xet(3), selenium(4), whisper(5)
         assert_eq!(tree.nodes.len(), 6);
         assert_eq!(tree.nodes[2].name, "hub");
@@ -1107,19 +1135,23 @@ mod tests {
         tree.set_roots(vec![make_node("root", 10000, 0, None)]);
         tree.expanded.insert(0);
 
-        tree.insert_children(0, vec![
-            make_node("big", 9000, 1, Some(0)),
-            make_node("small", 100, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("big", 9000, 1, Some(0)),
+                make_node("small", 100, 1, Some(0)),
+            ],
+        );
         // After name-asc sort: root(0), big(1), small(2)
 
         // Expand "small" and add a child
         let small_idx = tree.nodes.iter().position(|n| n.name == "small").unwrap();
         tree.expanded.insert(small_idx);
         tree.nodes[small_idx].children_loaded = false;
-        tree.insert_children(small_idx, vec![
-            make_leaf("small-child", 50, 2, Some(small_idx)),
-        ]);
+        tree.insert_children(
+            small_idx,
+            vec![make_leaf("small-child", 50, 2, Some(small_idx))],
+        );
         // Tree: root(0), big(1), small(2), small-child(3)
 
         // Sort by size desc — big(9000) stays first, small(100) stays second
@@ -1205,11 +1237,14 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("apple", 500, 1, Some(0)),
-            make_node("cherry", 300, 1, Some(0)),
-            make_node("apricot", 200, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("apple", 500, 1, Some(0)),
+                make_node("cherry", 300, 1, Some(0)),
+                make_node("apricot", 200, 1, Some(0)),
+            ],
+        );
         assert_eq!(tree.visible.len(), 4); // root + 3 children
 
         tree.set_filter("ap");
@@ -1226,10 +1261,13 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("Apple", 500, 1, Some(0)),
-            make_node("banana", 300, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("Apple", 500, 1, Some(0)),
+                make_node("banana", 300, 1, Some(0)),
+            ],
+        );
 
         tree.set_filter("APPLE");
         let names = tree.visible_names();
@@ -1242,10 +1280,13 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("apple", 500, 1, Some(0)),
-            make_node("banana", 300, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("apple", 500, 1, Some(0)),
+                make_node("banana", 300, 1, Some(0)),
+            ],
+        );
 
         tree.set_filter("apple");
         assert_eq!(tree.visible.len(), 2); // root + apple
@@ -1259,9 +1300,7 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("apple", 500, 1, Some(0)),
-        ]);
+        tree.insert_children(0, vec![make_node("apple", 500, 1, Some(0))]);
 
         tree.set_filter("");
         assert_eq!(tree.visible.len(), 2);
@@ -1272,11 +1311,14 @@ mod tests {
         let mut tree = TreeState::new(SortField::Size, true);
         tree.set_roots(vec![make_node("root", 1000, 0, None)]);
         tree.expanded.insert(0);
-        tree.insert_children(0, vec![
-            make_node("apple", 500, 1, Some(0)),
-            make_node("banana", 300, 1, Some(0)),
-            make_node("cherry", 200, 1, Some(0)),
-        ]);
+        tree.insert_children(
+            0,
+            vec![
+                make_node("apple", 500, 1, Some(0)),
+                make_node("banana", 300, 1, Some(0)),
+                make_node("cherry", 200, 1, Some(0)),
+            ],
+        );
         tree.selected = 3; // cherry
 
         tree.set_filter("apple");
@@ -1288,7 +1330,7 @@ mod tests {
     fn filter_roots_always_visible() {
         let mut tree = tree_with_roots();
         tree.set_filter("zzzzz"); // matches nothing
-        // All roots should still be visible
+                                  // All roots should still be visible
         assert_eq!(tree.visible.len(), 3);
     }
 
@@ -1333,7 +1375,10 @@ mod tests {
         let mut status = HashMap::new();
         status.insert(
             tree.nodes[0].path.clone(),
-            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+            crate::security::NodeStatus {
+                has_vuln: true,
+                has_outdated: false,
+            },
         );
         tree.filter_mode = FilterMode::Vuln;
         tree.recompute_dimmed(&status);
@@ -1351,14 +1396,26 @@ mod tests {
         let mut status = HashMap::new();
         status.insert(
             tree.nodes[1].path.clone(),
-            crate::security::NodeStatus { has_vuln: false, has_outdated: true },
+            crate::security::NodeStatus {
+                has_vuln: false,
+                has_outdated: true,
+            },
         );
         tree.filter_mode = FilterMode::Outdated;
         tree.recompute_dimmed(&status);
 
-        assert!(tree.dimmed.contains(&0), "root-a should be dimmed (no outdated)");
-        assert!(!tree.dimmed.contains(&1), "root-b should not be dimmed (outdated)");
-        assert!(tree.dimmed.contains(&2), "root-c should be dimmed (no outdated)");
+        assert!(
+            tree.dimmed.contains(&0),
+            "root-a should be dimmed (no outdated)"
+        );
+        assert!(
+            !tree.dimmed.contains(&1),
+            "root-b should not be dimmed (outdated)"
+        );
+        assert!(
+            tree.dimmed.contains(&2),
+            "root-c should be dimmed (no outdated)"
+        );
     }
 
     #[test]
@@ -1367,19 +1424,34 @@ mod tests {
         let mut status = HashMap::new();
         status.insert(
             tree.nodes[0].path.clone(),
-            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+            crate::security::NodeStatus {
+                has_vuln: true,
+                has_outdated: false,
+            },
         );
         status.insert(
             tree.nodes[1].path.clone(),
-            crate::security::NodeStatus { has_vuln: false, has_outdated: true },
+            crate::security::NodeStatus {
+                has_vuln: false,
+                has_outdated: true,
+            },
         );
         tree.filter_mode = FilterMode::Both;
         tree.recompute_dimmed(&status);
 
         // Both has_vuln OR has_outdated count
-        assert!(!tree.dimmed.contains(&0), "root-a has vuln, should not be dimmed");
-        assert!(!tree.dimmed.contains(&1), "root-b has outdated, should not be dimmed");
-        assert!(tree.dimmed.contains(&2), "root-c has neither, should be dimmed");
+        assert!(
+            !tree.dimmed.contains(&0),
+            "root-a has vuln, should not be dimmed"
+        );
+        assert!(
+            !tree.dimmed.contains(&1),
+            "root-b has outdated, should not be dimmed"
+        );
+        assert!(
+            tree.dimmed.contains(&2),
+            "root-c has neither, should be dimmed"
+        );
     }
 
     #[test]
@@ -1388,7 +1460,10 @@ mod tests {
         let mut status = HashMap::new();
         status.insert(
             tree.nodes[0].path.clone(),
-            crate::security::NodeStatus { has_vuln: true, has_outdated: false },
+            crate::security::NodeStatus {
+                has_vuln: true,
+                has_outdated: false,
+            },
         );
         tree.filter_mode = FilterMode::Vuln;
         tree.recompute_dimmed(&status);
@@ -1396,7 +1471,10 @@ mod tests {
 
         // recompute_visible calls recompute_dimmed_internal
         tree.recompute_visible();
-        assert!(!tree.dimmed.is_empty(), "Dimmed should survive recompute_visible");
+        assert!(
+            !tree.dimmed.is_empty(),
+            "Dimmed should survive recompute_visible"
+        );
     }
 
     // --- Navigation with dimmed ---
@@ -1434,7 +1512,10 @@ mod tests {
         tree.dimmed.insert(2);
         tree.selected = 0;
         tree.move_down();
-        assert_eq!(tree.selected, 0, "Should stay at root-a when all below are dimmed");
+        assert_eq!(
+            tree.selected, 0,
+            "Should stay at root-a when all below are dimmed"
+        );
     }
 
     #[test]
@@ -1444,7 +1525,10 @@ mod tests {
         tree.dimmed.insert(1);
         tree.selected = 2;
         tree.move_up();
-        assert_eq!(tree.selected, 2, "Should stay at root-c when all above are dimmed");
+        assert_eq!(
+            tree.selected, 2,
+            "Should stay at root-c when all above are dimmed"
+        );
     }
 
     // --- toggle_mark with dimmed ---

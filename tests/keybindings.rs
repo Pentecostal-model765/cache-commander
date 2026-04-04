@@ -15,6 +15,7 @@ fn key(code: KeyCode) -> KeyEvent {
     }
 }
 
+#[allow(dead_code)]
 fn key_shift(code: KeyCode) -> KeyEvent {
     KeyEvent {
         code,
@@ -87,10 +88,13 @@ fn test_app() -> App {
 
 fn test_app_with_children() -> App {
     let mut app = test_app();
-    app.tree.insert_children(0, vec![
-        make_child("child-big", 4000, 0),
-        make_child("child-small", 1000, 0),
-    ]);
+    app.tree.insert_children(
+        0,
+        vec![
+            make_child("child-big", 4000, 0),
+            make_child("child-small", 1000, 0),
+        ],
+    );
     app.tree.expanded.insert(0);
     app.tree.recompute_visible();
     app
@@ -224,7 +228,11 @@ fn key_space_unmarks() {
 fn key_d_does_nothing_without_marks() {
     let mut app = test_app();
     app.process_key(key(KeyCode::Char('d')));
-    assert_eq!(app.mode, AppMode::Normal, "d should do nothing when nothing is marked");
+    assert_eq!(
+        app.mode,
+        AppMode::Normal,
+        "d should do nothing when nothing is marked"
+    );
 }
 
 #[test]
@@ -388,19 +396,40 @@ fn bulk_delete_multiple_marked_items() {
 
     app.tree.set_roots(vec![
         TreeNode {
-            path: dir_a.clone(), name: "aaa".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_a.clone(),
+            name: "aaa".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: dir_b.clone(), name: "bbb".into(), size: 200, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_b.clone(),
+            name: "bbb".into(),
+            size: 200,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: dir_c.clone(), name: "ccc".into(), size: 300, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_c.clone(),
+            name: "ccc".into(),
+            size: 300,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
     ]);
 
@@ -442,14 +471,28 @@ fn bulk_delete_with_confirm_dialog() {
 
     app.tree.set_roots(vec![
         TreeNode {
-            path: dir_a.clone(), name: "aaa".into(), size: 0, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_a.clone(),
+            name: "aaa".into(),
+            size: 0,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: dir_b.clone(), name: "bbb".into(), size: 0, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_b.clone(),
+            name: "bbb".into(),
+            size: 0,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
     ]);
 
@@ -492,14 +535,28 @@ fn delete_uses_paths_not_stale_indices() {
 
     app.tree.set_roots(vec![
         TreeNode {
-            path: dir_a.clone(), name: "aaa".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_a.clone(),
+            name: "aaa".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: dir_b.clone(), name: "bbb".into(), size: 200, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: dir_b.clone(),
+            name: "bbb".into(),
+            size: 200,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
     ]);
 
@@ -513,7 +570,10 @@ fn delete_uses_paths_not_stale_indices() {
 
     // D should delete aaa (by path), not whatever is at the old index 0
     app.process_key(key(KeyCode::Char('D')));
-    assert!(!dir_a.exists(), "aaa should be deleted (matched by path, not stale index)");
+    assert!(
+        !dir_a.exists(),
+        "aaa should be deleted (matched by path, not stale index)"
+    );
     assert!(dir_b.exists(), "bbb should still exist");
 }
 
@@ -548,11 +608,22 @@ fn filter_mode_filters_visible_nodes() {
     app.process_key(key(KeyCode::Char('g')));
 
     // Should only show root (always visible) + "child-big" matching "big"
-    let visible_names: Vec<&str> = app.tree.visible.iter()
+    let visible_names: Vec<&str> = app
+        .tree
+        .visible
+        .iter()
         .map(|&i| app.tree.nodes[i].name.as_str())
         .collect();
-    assert!(visible_names.contains(&"child-big"), "Should show child-big: {:?}", visible_names);
-    assert!(!visible_names.contains(&"child-small"), "Should hide child-small: {:?}", visible_names);
+    assert!(
+        visible_names.contains(&"child-big"),
+        "Should show child-big: {:?}",
+        visible_names
+    );
+    assert!(
+        !visible_names.contains(&"child-small"),
+        "Should hide child-small: {:?}",
+        visible_names
+    );
 }
 
 #[test]
@@ -594,7 +665,11 @@ fn filter_mode_enter_keeps_filter_active() {
     let visible_before = app.tree.visible.len();
     app.process_key(key(KeyCode::Enter)); // exit filter mode but keep filter
     assert_eq!(app.mode, AppMode::Normal);
-    assert_eq!(app.tree.visible.len(), visible_before, "Filter should remain active");
+    assert_eq!(
+        app.tree.visible.len(),
+        visible_before,
+        "Filter should remain active"
+    );
 }
 
 #[test]
@@ -605,10 +680,17 @@ fn filter_is_case_insensitive() {
     app.process_key(key(KeyCode::Char('I')));
     app.process_key(key(KeyCode::Char('G')));
 
-    let visible_names: Vec<&str> = app.tree.visible.iter()
+    let visible_names: Vec<&str> = app
+        .tree
+        .visible
+        .iter()
         .map(|&i| app.tree.nodes[i].name.as_str())
         .collect();
-    assert!(visible_names.contains(&"child-big"), "Case-insensitive filter should match: {:?}", visible_names);
+    assert!(
+        visible_names.contains(&"child-big"),
+        "Case-insensitive filter should match: {:?}",
+        visible_names
+    );
 }
 
 // === Filter Mode ===
@@ -619,14 +701,20 @@ fn key_f_cycles_filter_mode_with_status_data() {
     // Populate node_status so filter mode is allowed
     app.node_status.insert(
         PathBuf::from("/test/alpha"),
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
 
     app.process_key(key(KeyCode::Char('f')));
     assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
 
     app.process_key(key(KeyCode::Char('f')));
-    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Outdated);
+    assert_eq!(
+        app.tree.filter_mode,
+        ccmd::tree::state::FilterMode::Outdated
+    );
 
     app.process_key(key(KeyCode::Char('f')));
     assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Both);
@@ -802,7 +890,10 @@ fn key_shift_o_checks_all() {
 #[test]
 fn vuln_propagates_to_ancestors() {
     // Use real hierarchical paths so filesystem ancestor walking works
-    let config = Config { roots: vec![], ..Default::default() };
+    let config = Config {
+        roots: vec![],
+        ..Default::default()
+    };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
     let mut app = App::new(config, result_rx, scan_tx);
@@ -811,9 +902,16 @@ fn vuln_propagates_to_ancestors() {
     let child_path = PathBuf::from("/cache/uv/archive/pkg1");
 
     app.tree.set_roots(vec![TreeNode {
-        path: parent_path.clone(), name: "uv".into(), size: 0, depth: 0,
-        parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Uv,
-        last_modified: None, is_root: true, children_loaded: false,
+        path: parent_path.clone(),
+        name: "uv".into(),
+        size: 0,
+        depth: 0,
+        parent: None,
+        has_children: true,
+        kind: ccmd::tree::node::CacheKind::Uv,
+        last_modified: None,
+        is_root: true,
+        children_loaded: false,
     }]);
 
     app.vuln_results.insert(
@@ -838,7 +936,10 @@ fn vuln_propagates_to_ancestors() {
 
 #[test]
 fn outdated_propagates_to_ancestors() {
-    let config = Config { roots: vec![], ..Default::default() };
+    let config = Config {
+        roots: vec![],
+        ..Default::default()
+    };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
     let mut app = App::new(config, result_rx, scan_tx);
@@ -847,9 +948,16 @@ fn outdated_propagates_to_ancestors() {
     let child_path = PathBuf::from("/cache/uv/archive/pkg1");
 
     app.tree.set_roots(vec![TreeNode {
-        path: parent_path.clone(), name: "uv".into(), size: 0, depth: 0,
-        parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Uv,
-        last_modified: None, is_root: true, children_loaded: false,
+        path: parent_path.clone(),
+        name: "uv".into(),
+        size: 0,
+        depth: 0,
+        parent: None,
+        has_children: true,
+        kind: ccmd::tree::node::CacheKind::Uv,
+        last_modified: None,
+        is_root: true,
+        children_loaded: false,
     }]);
 
     app.version_results.insert(
@@ -929,14 +1037,20 @@ fn navigation_skips_dimmed_nodes() {
     let child_big_path = app.tree.nodes[1].path.clone();
     app.node_status.insert(
         child_big_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
 
     // Also mark alpha as having a vulnerable child so it won't be dimmed
     let alpha_path = app.tree.nodes[0].path.clone();
     app.node_status.insert(
         alpha_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
 
     // Set filter to Vuln — everything except child-big and alpha should be dimmed
@@ -944,7 +1058,10 @@ fn navigation_skips_dimmed_nodes() {
     app.tree.recompute_dimmed(&app.node_status);
 
     // child-big should not be dimmed (is vulnerable)
-    assert!(!app.tree.dimmed.contains(&1), "child-big should not be dimmed");
+    assert!(
+        !app.tree.dimmed.contains(&1),
+        "child-big should not be dimmed"
+    );
     // child-small, beta, gamma should be dimmed
     assert!(app.tree.dimmed.contains(&2), "child-small should be dimmed");
 
@@ -954,8 +1071,13 @@ fn navigation_skips_dimmed_nodes() {
     // Should land on child-big (visible index 1)
     let selected_name = app.tree.selected_node().unwrap().name.clone();
     assert!(
-        selected_name == "child-big" || !app.tree.dimmed.contains(&app.tree.visible[app.tree.selected]),
-        "Should skip to non-dimmed node, got: {}", selected_name
+        selected_name == "child-big"
+            || !app
+                .tree
+                .dimmed
+                .contains(&app.tree.visible[app.tree.selected]),
+        "Should skip to non-dimmed node, got: {}",
+        selected_name
     );
 }
 
@@ -1000,8 +1122,14 @@ fn marking_mode_y_marks_all_non_dimmed_visible() {
     assert!(app.tree.marked.contains(&1), "child-big should be marked");
     assert!(app.tree.marked.contains(&2), "child-small should be marked");
     // beta (idx 3) and gamma (idx 4) should NOT be marked (dimmed)
-    assert!(!app.tree.marked.contains(&3), "beta should not be marked (dimmed)");
-    assert!(!app.tree.marked.contains(&4), "gamma should not be marked (dimmed)");
+    assert!(
+        !app.tree.marked.contains(&3),
+        "beta should not be marked (dimmed)"
+    );
+    assert!(
+        !app.tree.marked.contains(&4),
+        "gamma should not be marked (dimmed)"
+    );
 }
 
 #[test]
@@ -1062,19 +1190,40 @@ fn full_workflow_filter_mark_delete() {
 
     app.tree.set_roots(vec![
         TreeNode {
-            path: vuln_dir.clone(), name: "vulnerable-pkg".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: vuln_dir.clone(),
+            name: "vulnerable-pkg".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: safe_dir.clone(), name: "safe-pkg".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: safe_dir.clone(),
+            name: "safe-pkg".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: outdated_dir.clone(), name: "outdated-pkg".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: outdated_dir.clone(),
+            name: "outdated-pkg".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
     ]);
 
@@ -1097,8 +1246,18 @@ fn full_workflow_filter_mark_delete() {
     assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
 
     // safe-pkg and outdated-pkg should be dimmed
-    let safe_idx = app.tree.nodes.iter().position(|n| n.name == "safe-pkg").unwrap();
-    let outdated_idx = app.tree.nodes.iter().position(|n| n.name == "outdated-pkg").unwrap();
+    let safe_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "safe-pkg")
+        .unwrap();
+    let outdated_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "outdated-pkg")
+        .unwrap();
     assert!(app.tree.dimmed.contains(&safe_idx));
     assert!(app.tree.dimmed.contains(&outdated_idx));
 
@@ -1108,7 +1267,12 @@ fn full_workflow_filter_mark_delete() {
     app.process_key(key(KeyCode::Char('y')));
 
     // Only vuln_dir should be marked
-    let vuln_idx = app.tree.nodes.iter().position(|n| n.name == "vulnerable-pkg").unwrap();
+    let vuln_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "vulnerable-pkg")
+        .unwrap();
     assert!(app.tree.marked.contains(&vuln_idx));
     assert!(!app.tree.marked.contains(&safe_idx));
     assert!(!app.tree.marked.contains(&outdated_idx));
@@ -1131,17 +1295,26 @@ fn dimmed_survives_expand_collapse() {
     let alpha_path = app.tree.nodes[0].path.clone();
     app.node_status.insert(
         child_big_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
     app.node_status.insert(
         alpha_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
 
     // Activate vuln filter
     app.tree.filter_mode = ccmd::tree::state::FilterMode::Vuln;
     app.tree.recompute_dimmed(&app.node_status);
-    assert!(app.tree.dimmed.contains(&2), "child-small should be dimmed before collapse");
+    assert!(
+        app.tree.dimmed.contains(&2),
+        "child-small should be dimmed before collapse"
+    );
 
     // Collapse alpha — this calls recompute_visible internally
     app.tree.selected = 0;
@@ -1153,10 +1326,26 @@ fn dimmed_survives_expand_collapse() {
 
     // Dimmed should still be populated after expand/collapse
     // beta and gamma should still be dimmed (not vuln)
-    let beta_idx = app.tree.nodes.iter().position(|n| n.name == "beta").unwrap();
-    let gamma_idx = app.tree.nodes.iter().position(|n| n.name == "gamma").unwrap();
-    assert!(app.tree.dimmed.contains(&beta_idx), "beta should still be dimmed after expand");
-    assert!(app.tree.dimmed.contains(&gamma_idx), "gamma should still be dimmed after expand");
+    let beta_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "beta")
+        .unwrap();
+    let gamma_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "gamma")
+        .unwrap();
+    assert!(
+        app.tree.dimmed.contains(&beta_idx),
+        "beta should still be dimmed after expand"
+    );
+    assert!(
+        app.tree.dimmed.contains(&gamma_idx),
+        "gamma should still be dimmed after expand"
+    );
 }
 
 #[test]
@@ -1171,24 +1360,39 @@ fn switching_filter_mode_updates_dimmed() {
 
     app.node_status.insert(
         child_big_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
     app.node_status.insert(
         child_small_path.clone(),
-        ccmd::security::NodeStatus { has_vuln: false, has_outdated: true },
+        ccmd::security::NodeStatus {
+            has_vuln: false,
+            has_outdated: true,
+        },
     );
     app.node_status.insert(
         alpha_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: true },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: true,
+        },
     );
 
     // f once → Vuln filter
     app.process_key(key(KeyCode::Char('f')));
     assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
     // child-small is not vuln → dimmed
-    assert!(app.tree.dimmed.contains(&2), "child-small should be dimmed in Vuln mode");
+    assert!(
+        app.tree.dimmed.contains(&2),
+        "child-small should be dimmed in Vuln mode"
+    );
     // child-big is vuln → not dimmed
-    assert!(!app.tree.dimmed.contains(&1), "child-big should not be dimmed in Vuln mode");
+    assert!(
+        !app.tree.dimmed.contains(&1),
+        "child-big should not be dimmed in Vuln mode"
+    );
 
     // Verify nav skips child-small
     app.tree.selected = 0; // alpha
@@ -1196,21 +1400,37 @@ fn switching_filter_mode_updates_dimmed() {
     assert_eq!(app.tree.selected_node().unwrap().name, "child-big");
     app.process_key(key(KeyCode::Char('j'))); // should skip child-small
     let after_skip = app.tree.selected_node().unwrap().name.clone();
-    assert_ne!(after_skip, "child-small", "Should skip dimmed child-small, got: {}", after_skip);
+    assert_ne!(
+        after_skip, "child-small",
+        "Should skip dimmed child-small, got: {}",
+        after_skip
+    );
 
     // f again → Outdated filter
     app.process_key(key(KeyCode::Char('f')));
-    assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Outdated);
+    assert_eq!(
+        app.tree.filter_mode,
+        ccmd::tree::state::FilterMode::Outdated
+    );
     // Now child-big (vuln-only, not outdated) should be dimmed
-    assert!(app.tree.dimmed.contains(&1), "child-big should be dimmed in Outdated mode");
+    assert!(
+        app.tree.dimmed.contains(&1),
+        "child-big should be dimmed in Outdated mode"
+    );
     // child-small (outdated) should NOT be dimmed
-    assert!(!app.tree.dimmed.contains(&2), "child-small should not be dimmed in Outdated mode");
+    assert!(
+        !app.tree.dimmed.contains(&2),
+        "child-small should not be dimmed in Outdated mode"
+    );
 
     // Verify nav skips child-big now
     app.tree.selected = 0; // alpha
     app.process_key(key(KeyCode::Char('j'))); // should skip child-big, go to child-small
-    assert_eq!(app.tree.selected_node().unwrap().name, "child-small",
-        "After switching to Outdated, nav should skip child-big and land on child-small");
+    assert_eq!(
+        app.tree.selected_node().unwrap().name,
+        "child-small",
+        "After switching to Outdated, nav should skip child-big and land on child-small"
+    );
 }
 
 // === Defensive: toggle_mark on dimmed node ===
@@ -1224,8 +1444,14 @@ fn toggle_mark_on_dimmed_node_is_noop() {
     app.tree.selected = 0;
 
     app.process_key(key(KeyCode::Char(' ')));
-    assert!(!app.tree.marked.contains(&0), "Space on a dimmed node should not mark it");
-    assert_eq!(app.tree.selected, 0, "Selection should not advance on dimmed toggle_mark");
+    assert!(
+        !app.tree.marked.contains(&0),
+        "Space on a dimmed node should not mark it"
+    );
+    assert_eq!(
+        app.tree.selected, 0,
+        "Selection should not advance on dimmed toggle_mark"
+    );
 }
 
 // === Bulk mark edge cases ===
@@ -1238,7 +1464,11 @@ fn key_m_when_all_already_marked_shows_no_items() {
         app.tree.marked.insert(idx);
     }
     app.process_key(key(KeyCode::Char('m')));
-    assert_eq!(app.mode, AppMode::Normal, "Should stay in Normal mode when nothing to mark");
+    assert_eq!(
+        app.mode,
+        AppMode::Normal,
+        "Should stay in Normal mode when nothing to mark"
+    );
     assert!(app.status_msg.as_ref().unwrap().contains("No items"));
 }
 
@@ -1266,8 +1496,15 @@ fn marking_all_mode_j_does_not_navigate() {
     assert_eq!(app.mode, AppMode::MarkingAll);
     let selected_before = app.tree.selected;
     app.process_key(key(KeyCode::Char('j')));
-    assert_eq!(app.tree.selected, selected_before, "j should not navigate in MarkingAll mode");
-    assert_eq!(app.mode, AppMode::MarkingAll, "Should still be in MarkingAll mode");
+    assert_eq!(
+        app.tree.selected, selected_before,
+        "j should not navigate in MarkingAll mode"
+    );
+    assert_eq!(
+        app.mode,
+        AppMode::MarkingAll,
+        "Should still be in MarkingAll mode"
+    );
 }
 
 #[test]
@@ -1277,7 +1514,10 @@ fn marking_all_mode_k_does_not_navigate() {
     app.process_key(key(KeyCode::Char('m')));
     assert_eq!(app.mode, AppMode::MarkingAll);
     app.process_key(key(KeyCode::Char('k')));
-    assert_eq!(app.tree.selected, 2, "k should not navigate in MarkingAll mode");
+    assert_eq!(
+        app.tree.selected, 2,
+        "k should not navigate in MarkingAll mode"
+    );
 }
 
 #[test]
@@ -1287,7 +1527,11 @@ fn marking_all_mode_q_does_not_quit() {
     assert_eq!(app.mode, AppMode::MarkingAll);
     app.process_key(key(KeyCode::Char('q')));
     assert!(!app.should_quit, "q should not quit in MarkingAll mode");
-    assert_eq!(app.mode, AppMode::MarkingAll, "Should still be in MarkingAll mode");
+    assert_eq!(
+        app.mode,
+        AppMode::MarkingAll,
+        "Should still be in MarkingAll mode"
+    );
 }
 
 #[test]
@@ -1296,7 +1540,10 @@ fn marking_all_mode_space_does_not_toggle_mark() {
     app.process_key(key(KeyCode::Char('m')));
     assert_eq!(app.mode, AppMode::MarkingAll);
     app.process_key(key(KeyCode::Char(' ')));
-    assert!(app.tree.marked.is_empty(), "Space should not toggle mark in MarkingAll mode");
+    assert!(
+        app.tree.marked.is_empty(),
+        "Space should not toggle mark in MarkingAll mode"
+    );
 }
 
 // === snap_selection_to_non_dimmed edge cases ===
@@ -1321,7 +1568,10 @@ fn snap_selection_already_non_dimmed_is_noop() {
     app.tree.dimmed.insert(1);
     app.tree.selected = 0; // alpha is not dimmed
     app.tree.snap_selection_to_non_dimmed();
-    assert_eq!(app.tree.selected, 0, "Should stay on alpha (already non-dimmed)");
+    assert_eq!(
+        app.tree.selected, 0,
+        "Should stay on alpha (already non-dimmed)"
+    );
 }
 
 // === Sort while filter active ===
@@ -1334,11 +1584,17 @@ fn sort_while_filter_preserves_dimmed() {
     let alpha_path = app.tree.nodes[0].path.clone();
     app.node_status.insert(
         child_big_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
     app.node_status.insert(
         alpha_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
 
     // Activate vuln filter
@@ -1349,7 +1605,10 @@ fn sort_while_filter_preserves_dimmed() {
 
     // Sort — dimmed should be recomputed after sort
     app.process_key(key(KeyCode::Char('s')));
-    assert!(!app.tree.dimmed.is_empty(), "Dimmed set should survive sort");
+    assert!(
+        !app.tree.dimmed.is_empty(),
+        "Dimmed set should survive sort"
+    );
 }
 
 // === Delete while filter active ===
@@ -1377,14 +1636,28 @@ fn delete_while_filter_recomputes_dimmed() {
 
     app.tree.set_roots(vec![
         TreeNode {
-            path: vuln_dir.clone(), name: "vuln-pkg".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: vuln_dir.clone(),
+            name: "vuln-pkg".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
         TreeNode {
-            path: safe_dir.clone(), name: "safe-pkg".into(), size: 100, depth: 0,
-            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Pip,
-            last_modified: None, is_root: true, children_loaded: false,
+            path: safe_dir.clone(),
+            name: "safe-pkg".into(),
+            size: 100,
+            depth: 0,
+            parent: None,
+            has_children: true,
+            kind: ccmd::tree::node::CacheKind::Pip,
+            last_modified: None,
+            is_root: true,
+            children_loaded: false,
         },
     ]);
 
@@ -1407,8 +1680,16 @@ fn delete_while_filter_recomputes_dimmed() {
     assert_eq!(app.tree.filter_mode, ccmd::tree::state::FilterMode::Vuln);
 
     // safe-pkg should be dimmed
-    let safe_idx = app.tree.nodes.iter().position(|n| n.name == "safe-pkg").unwrap();
-    assert!(app.tree.dimmed.contains(&safe_idx), "safe-pkg should be dimmed");
+    let safe_idx = app
+        .tree
+        .nodes
+        .iter()
+        .position(|n| n.name == "safe-pkg")
+        .unwrap();
+    assert!(
+        app.tree.dimmed.contains(&safe_idx),
+        "safe-pkg should be dimmed"
+    );
 
     // Mark vuln-pkg and delete it
     app.tree.selected = 0;
@@ -1436,15 +1717,24 @@ fn filter_switch_snaps_cursor_to_non_dimmed() {
 
     app.node_status.insert(
         child_big_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: false,
+        },
     );
     app.node_status.insert(
         child_small_path,
-        ccmd::security::NodeStatus { has_vuln: false, has_outdated: true },
+        ccmd::security::NodeStatus {
+            has_vuln: false,
+            has_outdated: true,
+        },
     );
     app.node_status.insert(
         alpha_path,
-        ccmd::security::NodeStatus { has_vuln: true, has_outdated: true },
+        ccmd::security::NodeStatus {
+            has_vuln: true,
+            has_outdated: true,
+        },
     );
 
     // Select child-small (index 2)
@@ -1454,6 +1744,8 @@ fn filter_switch_snaps_cursor_to_non_dimmed() {
     app.process_key(key(KeyCode::Char('f')));
     // Cursor should have snapped away from child-small
     let selected_idx = app.tree.visible[app.tree.selected];
-    assert!(!app.tree.dimmed.contains(&selected_idx),
-        "After filter switch, cursor should not be on a dimmed node");
+    assert!(
+        !app.tree.dimmed.contains(&selected_idx),
+        "After filter switch, cursor should not be on a dimmed node"
+    );
 }

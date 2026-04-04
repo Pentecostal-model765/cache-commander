@@ -73,7 +73,9 @@ impl App {
 
     pub fn init(&self) {
         let roots = self.config.roots.clone();
-        let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanRoots(roots));
+        let _ = self
+            .scan_tx
+            .send(crate::scanner::ScanRequest::ScanRoots(roots));
     }
 
     pub fn tick(&mut self) {
@@ -100,9 +102,18 @@ impl App {
                     self.vulnscan_in_progress = false;
                     self.recompute_node_status();
                     self.tree.recompute_dimmed(&self.node_status);
-                    let vuln_count = self.vuln_results.values().map(|s| s.vulns.len()).sum::<usize>();
+                    let vuln_count = self
+                        .vuln_results
+                        .values()
+                        .map(|s| s.vulns.len())
+                        .sum::<usize>();
                     self.status_msg = Some(if vuln_count > 0 {
-                        format!("Scanned {} packages — {} vulnerabilit{} found", scanned, vuln_count, if vuln_count == 1 { "y" } else { "ies" })
+                        format!(
+                            "Scanned {} packages — {} vulnerabilit{} found",
+                            scanned,
+                            vuln_count,
+                            if vuln_count == 1 { "y" } else { "ies" }
+                        )
                     } else {
                         format!("Scanned {} packages — no vulnerabilities found", scanned)
                     });
@@ -112,7 +123,11 @@ impl App {
                     self.versioncheck_in_progress = false;
                     self.recompute_node_status();
                     self.tree.recompute_dimmed(&self.node_status);
-                    let outdated = self.version_results.values().filter(|v| v.is_outdated).count();
+                    let outdated = self
+                        .version_results
+                        .values()
+                        .filter(|v| v.is_outdated)
+                        .count();
                     self.status_msg = Some(if outdated > 0 {
                         format!("Checked {} packages — {} outdated", checked, outdated)
                     } else {
@@ -203,7 +218,9 @@ impl App {
                 if let Some(idx) = self.tree.selected_node_index() {
                     self.vulnscan_in_progress = true;
                     let path = self.tree.nodes[idx].path.clone();
-                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(vec![path]));
+                    let _ = self
+                        .scan_tx
+                        .send(crate::scanner::ScanRequest::ScanVulns(vec![path]));
                 }
             }
             KeyCode::Char('V') => {
@@ -216,18 +233,25 @@ impl App {
                 if let Some(idx) = self.tree.selected_node_index() {
                     self.versioncheck_in_progress = true;
                     let path = self.tree.nodes[idx].path.clone();
-                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(vec![path]));
+                    let _ = self
+                        .scan_tx
+                        .send(crate::scanner::ScanRequest::CheckVersions(vec![path]));
                 }
             }
             KeyCode::Char('O') => {
                 self.versioncheck_in_progress = true;
-                let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(
-                    self.config.roots.clone(),
-                ));
+                let _ = self
+                    .scan_tx
+                    .send(crate::scanner::ScanRequest::CheckVersions(
+                        self.config.roots.clone(),
+                    ));
             }
             KeyCode::Char('d') | KeyCode::Char('D') => {
                 if !self.tree.marked.is_empty() {
-                    self.delete_candidates = self.tree.marked.iter()
+                    self.delete_candidates = self
+                        .tree
+                        .marked
+                        .iter()
                         .filter_map(|&idx| self.tree.nodes.get(idx).map(|n| n.path.clone()))
                         .collect();
                     if self.config.confirm_delete {
@@ -251,21 +275,28 @@ impl App {
             KeyCode::Char('s') => self.tree.cycle_sort(),
             KeyCode::Char('f') => {
                 if self.node_status.is_empty() {
-                    self.status_msg = Some("Run vuln scan (v/V) or version check (o/O) first".into());
+                    self.status_msg =
+                        Some("Run vuln scan (v/V) or version check (o/O) first".into());
                 } else {
                     self.tree.filter_mode = self.tree.filter_mode.cycle();
                     self.tree.recompute_dimmed(&self.node_status);
                     self.tree.snap_selection_to_non_dimmed();
                     if self.tree.filter_mode != crate::tree::state::FilterMode::None {
-                        self.status_msg = Some(format!("Filter: {}", self.tree.filter_mode.label()));
+                        self.status_msg =
+                            Some(format!("Filter: {}", self.tree.filter_mode.label()));
                     } else {
                         self.status_msg = Some("Filter cleared".into());
                     }
                 }
             }
             KeyCode::Char('m') => {
-                let count = self.tree.visible.iter()
-                    .filter(|&&idx| !self.tree.dimmed.contains(&idx) && !self.tree.marked.contains(&idx))
+                let count = self
+                    .tree
+                    .visible
+                    .iter()
+                    .filter(|&&idx| {
+                        !self.tree.dimmed.contains(&idx) && !self.tree.marked.contains(&idx)
+                    })
                     .count();
                 if count == 0 {
                     self.status_msg = Some("No items to mark".into());
@@ -415,7 +446,6 @@ impl App {
         }
     }
 
-
     fn upgrade_command_for_selected(&self) -> Option<String> {
         let node = self.tree.selected_node()?;
         let pkg_name = extract_package_name(&node.name);
@@ -441,10 +471,7 @@ impl App {
         self.node_status.clear();
 
         for path in self.vuln_results.keys() {
-            self.node_status
-                .entry(path.clone())
-                .or_default()
-                .has_vuln = true;
+            self.node_status.entry(path.clone()).or_default().has_vuln = true;
         }
         for (path, info) in &self.version_results {
             if info.is_outdated {
@@ -486,8 +513,8 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(10), // banner
-                Constraint::Min(0),   // main area
-                Constraint::Length(1), // bottom bar
+                Constraint::Min(0),     // main area
+                Constraint::Length(1),  // bottom bar
             ])
             .split(f.area());
 
@@ -534,8 +561,16 @@ impl App {
             "scanning...".to_string()
         };
 
-        let vuln_count = self.vuln_results.values().map(|s| s.vulns.len()).sum::<usize>();
-        let outdated_count = self.version_results.values().filter(|v| v.is_outdated).count();
+        let vuln_count = self
+            .vuln_results
+            .values()
+            .map(|s| s.vulns.len())
+            .sum::<usize>();
+        let outdated_count = self
+            .version_results
+            .values()
+            .filter(|v| v.is_outdated)
+            .count();
 
         let mut stats = format!(
             "{}  │  {} root{}  │  sort: {} {}",
@@ -548,7 +583,11 @@ impl App {
         if self.vulnscan_in_progress {
             stats.push_str("  │  ⚠ scanning...");
         } else if vuln_count > 0 {
-            stats.push_str(&format!("  │  ⚠ {} vuln{}", vuln_count, if vuln_count == 1 { "" } else { "s" }));
+            stats.push_str(&format!(
+                "  │  ⚠ {} vuln{}",
+                vuln_count,
+                if vuln_count == 1 { "" } else { "s" }
+            ));
         }
         if self.versioncheck_in_progress {
             stats.push_str("  │  ↓ checking...");
@@ -568,18 +607,40 @@ impl App {
         let gold = ratatui::style::Style::default().fg(ratatui::style::Color::Yellow);
 
         let art: [(&str, &str); 6] = [
-            (" ██████╗ █████╗  ██████╗██╗  ██╗███████╗", " ██████╗ ██████╗ ███╗   ███╗███╗   ███╗ █████╗ ███╗   ██╗██████╗ ███████╗██████╗ "),
-            ("██╔════╝██╔══██╗██╔════╝██║  ██║██╔════╝", "██╔════╝██╔═══██╗████╗ ████║████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝██╔══██╗"),
-            ("██║     ███████║██║     ███████║█████╗  ", "██║     ██║   ██║██╔████╔██║██╔████╔██║███████║██╔██╗ ██║██║  ██║█████╗  ██████╔╝"),
-            ("██║     ██╔══██║██║     ██╔══██║██╔══╝  ", "██║     ██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗"),
-            ("╚██████╗██║  ██║╚██████╗██║  ██║███████╗", "╚██████╗╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝███████╗██║  ██║"),
-            (" ╚═════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝", " ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝"),
+            (
+                " ██████╗ █████╗  ██████╗██╗  ██╗███████╗",
+                " ██████╗ ██████╗ ███╗   ███╗███╗   ███╗ █████╗ ███╗   ██╗██████╗ ███████╗██████╗ ",
+            ),
+            (
+                "██╔════╝██╔══██╗██╔════╝██║  ██║██╔════╝",
+                "██╔════╝██╔═══██╗████╗ ████║████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝██╔══██╗",
+            ),
+            (
+                "██║     ███████║██║     ███████║█████╗  ",
+                "██║     ██║   ██║██╔████╔██║██╔████╔██║███████║██╔██╗ ██║██║  ██║█████╗  ██████╔╝",
+            ),
+            (
+                "██║     ██╔══██║██║     ██╔══██║██╔══╝  ",
+                "██║     ██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗",
+            ),
+            (
+                "╚██████╗██║  ██║╚██████╗██║  ██║███████╗",
+                "╚██████╗╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝███████╗██║  ██║",
+            ),
+            (
+                " ╚═════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝",
+                " ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝",
+            ),
         ];
 
         // Measure display width using char count (box-drawing chars are multi-byte in UTF-8)
         let art_width = art[0].0.chars().count() + 2 + art[0].1.chars().count();
         let term_width = area.width as usize;
-        let pad = if term_width > art_width { (term_width - art_width) / 2 } else { 0 };
+        let pad = if term_width > art_width {
+            (term_width - art_width) / 2
+        } else {
+            0
+        };
         let padding = " ".repeat(pad);
 
         let mut banner_lines: Vec<Line> = vec![Line::from(Span::raw(""))];
@@ -595,15 +656,18 @@ impl App {
         banner_lines.push(Line::from(Span::raw("")));
 
         // Center the stats line too
-        let stats_pad = if term_width > stats.len() { (term_width - stats.len()) / 2 } else { 0 };
+        let stats_pad = if term_width > stats.len() {
+            (term_width - stats.len()) / 2
+        } else {
+            0
+        };
         banner_lines.push(Line::from(vec![
             Span::raw(" ".repeat(stats_pad)),
             Span::styled(&stats, theme::HEADER),
         ]));
 
-        let banner = Paragraph::new(banner_lines).style(
-            ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(15, 15, 26)),
-        );
+        let banner = Paragraph::new(banner_lines)
+            .style(ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(15, 15, 26)));
         f.render_widget(banner, area);
     }
 
@@ -617,7 +681,13 @@ impl App {
         self.tree.adjust_scroll(viewport_height);
 
         tree_panel::render(f, chunks[0], &self.tree, &self.node_status);
-        detail_panel::render(f, chunks[1], &self.tree, &self.vuln_results, &self.version_results);
+        detail_panel::render(
+            f,
+            chunks[1],
+            &self.tree,
+            &self.vuln_results,
+            &self.version_results,
+        );
     }
 
     fn render_bottom_bar(&self, f: &mut Frame, area: Rect) {
@@ -635,10 +705,7 @@ impl App {
                 Span::styled("█", crate::ui::theme::KEY),
             ])
         } else if let Some(msg) = &self.status_msg {
-            Line::from(Span::styled(
-                format!(" {msg}"),
-                crate::ui::theme::SAFE,
-            ))
+            Line::from(Span::styled(format!(" {msg}"), crate::ui::theme::SAFE))
         } else {
             Line::from(vec![
                 Span::styled(" ↑↓", crate::ui::theme::KEY),
@@ -661,9 +728,8 @@ impl App {
             ])
         };
 
-        let bar = Paragraph::new(line).style(
-            ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(30, 30, 50)),
-        );
+        let bar = Paragraph::new(line)
+            .style(ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(30, 30, 50)));
         f.render_widget(bar, area);
     }
 }
@@ -674,7 +740,11 @@ fn extract_package_name(name: &str) -> String {
     } else {
         name
     };
-    stripped.split_whitespace().next().unwrap_or(stripped).to_string()
+    stripped
+        .split_whitespace()
+        .next()
+        .unwrap_or(stripped)
+        .to_string()
 }
 
 fn copy_to_clipboard(text: &str) -> bool {

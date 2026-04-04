@@ -123,10 +123,20 @@ pub fn render(
         )));
         let mut sorted_vulns = sec.vulns.clone();
         sorted_vulns.sort_by(|a, b| {
-            let a_parts: Vec<u64> = a.fix_version.as_deref().unwrap_or("0")
-                .split('.').filter_map(|s| s.parse().ok()).collect();
-            let b_parts: Vec<u64> = b.fix_version.as_deref().unwrap_or("0")
-                .split('.').filter_map(|s| s.parse().ok()).collect();
+            let a_parts: Vec<u64> = a
+                .fix_version
+                .as_deref()
+                .unwrap_or("0")
+                .split('.')
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            let b_parts: Vec<u64> = b
+                .fix_version
+                .as_deref()
+                .unwrap_or("0")
+                .split('.')
+                .filter_map(|s| s.parse().ok())
+                .collect();
             let len = a_parts.len().max(b_parts.len());
             for i in 0..len {
                 let av = a_parts.get(i).copied().unwrap_or(0);
@@ -158,7 +168,11 @@ pub fn render(
                     format!("    Fix: ≥{}", fix),
                     theme::SAFE,
                 )));
-                if let Some(cmd) = crate::providers::upgrade_command(node.kind, &extract_package_name(&node.name), fix) {
+                if let Some(cmd) = crate::providers::upgrade_command(
+                    node.kind,
+                    &extract_package_name(&node.name),
+                    fix,
+                ) {
                     lines.push(Line::from(Span::styled(
                         format!("    → {}", cmd),
                         theme::DIM,
@@ -180,25 +194,35 @@ pub fn render(
             Span::styled("  Current  ", theme::DIM),
             Span::styled(&ver.current, theme::NORMAL),
             Span::styled("  →  ", theme::DIM),
-            Span::styled(&ver.latest, if ver.is_outdated { theme::CAUTION } else { theme::SAFE }),
+            Span::styled(
+                &ver.latest,
+                if ver.is_outdated {
+                    theme::CAUTION
+                } else {
+                    theme::SAFE
+                },
+            ),
         ]));
         if ver.is_outdated {
             lines.push(Line::from(Span::styled(
                 "  ↓ Update available",
                 theme::CAUTION,
             )));
-            if let Some(cmd) = crate::providers::upgrade_command(node.kind, &extract_package_name(&node.name), &ver.latest) {
-                lines.push(Line::from(Span::styled(
-                    format!("  → {}", cmd),
-                    theme::DIM,
-                )));
+            if let Some(cmd) = crate::providers::upgrade_command(
+                node.kind,
+                &extract_package_name(&node.name),
+                &ver.latest,
+            ) {
+                lines.push(Line::from(Span::styled(format!("  → {}", cmd), theme::DIM)));
             }
         }
     }
 
     // Contextual delete hint
     let has_vuln = vuln_results.contains_key(&node.path);
-    let has_outdated = version_results.get(&node.path).is_some_and(|v| v.is_outdated);
+    let has_outdated = version_results
+        .get(&node.path)
+        .is_some_and(|v| v.is_outdated);
     if has_vuln || has_outdated {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("ACTION", theme::DIM)));
@@ -257,7 +281,11 @@ fn extract_package_name(name: &str) -> String {
     } else {
         name
     };
-    stripped.split_whitespace().next().unwrap_or(stripped).to_string()
+    stripped
+        .split_whitespace()
+        .next()
+        .unwrap_or(stripped)
+        .to_string()
 }
 
 #[cfg(test)]
