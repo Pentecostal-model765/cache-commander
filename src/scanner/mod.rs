@@ -25,7 +25,7 @@ pub enum ScanResult {
 }
 
 /// Walk a set of root paths to find all identifiable packages.
-fn discover_packages(roots: &[PathBuf]) -> Vec<(PathBuf, crate::providers::PackageId)> {
+pub fn discover_packages(roots: &[PathBuf]) -> Vec<(PathBuf, crate::providers::PackageId)> {
     let mut packages = Vec::new();
     for root in roots {
         if !root.exists() {

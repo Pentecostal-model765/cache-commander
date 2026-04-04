@@ -500,3 +500,19 @@ fn make_test_node_with_path(
         children_loaded: false,
     }
 }
+
+#[test]
+fn discover_packages_finds_uv_dist_info() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Each hash dir is a separate venv with one primary package
+    let hash1 = tmp.path().join("uv/archive-v0/hash1");
+    let hash2 = tmp.path().join("uv/archive-v0/hash2");
+    std::fs::create_dir_all(hash1.join("urllib3-1.26.5.dist-info")).unwrap();
+    std::fs::create_dir_all(hash2.join("requests-2.25.0.dist-info")).unwrap();
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().to_path_buf()]);
+    let names: Vec<&str> = packages.iter().map(|(_, id)| id.name.as_str()).collect();
+    assert!(names.contains(&"urllib3"), "Should find urllib3: {:?}", names);
+    assert!(names.contains(&"requests"), "Should find requests: {:?}", names);
+    assert_eq!(packages.len(), 2);
+}
