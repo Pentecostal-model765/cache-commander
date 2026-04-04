@@ -917,3 +917,55 @@ fn node_status_cleared_on_recompute() {
         "Status should be cleared after removing vuln results"
     );
 }
+
+#[test]
+fn navigation_skips_dimmed_nodes() {
+    let mut app = test_app_with_children();
+    // visible: alpha(0), child-big(1), child-small(2), beta(3), gamma(4)
+
+    // Mark child-big as vulnerable
+    let child_big_path = app.tree.nodes[1].path.clone();
+    app.node_status.insert(
+        child_big_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+
+    // Also mark alpha as having a vulnerable child so it won't be dimmed
+    let alpha_path = app.tree.nodes[0].path.clone();
+    app.node_status.insert(
+        alpha_path,
+        ccmd::security::NodeStatus { has_vuln: true, has_outdated: false },
+    );
+
+    // Set filter to Vuln — everything except child-big and alpha should be dimmed
+    app.tree.filter_mode = ccmd::tree::state::FilterMode::Vuln;
+    app.tree.recompute_dimmed(&app.node_status);
+
+    // child-big should not be dimmed (is vulnerable)
+    assert!(!app.tree.dimmed.contains(&1), "child-big should not be dimmed");
+    // child-small, beta, gamma should be dimmed
+    assert!(app.tree.dimmed.contains(&2), "child-small should be dimmed");
+
+    // Navigate down from alpha — should skip to first non-dimmed item
+    app.tree.selected = 0;
+    app.process_key(key(KeyCode::Char('j')));
+    // Should land on child-big (visible index 1)
+    let selected_name = app.tree.selected_node().unwrap().name.clone();
+    assert!(
+        selected_name == "child-big" || !app.tree.dimmed.contains(&app.tree.visible[app.tree.selected]),
+        "Should skip to non-dimmed node, got: {}", selected_name
+    );
+}
+
+#[test]
+fn go_top_skips_dimmed_root() {
+    let mut app = test_app();
+    // 3 roots: alpha, beta, gamma — dim alpha
+    app.tree.dimmed.insert(0);
+    app.tree.selected = 2;
+
+    app.tree.go_top();
+    // Should land on beta (visible index 1), not dimmed alpha
+    let selected_node = app.tree.selected_node().unwrap();
+    assert_eq!(selected_node.name, "beta");
+}

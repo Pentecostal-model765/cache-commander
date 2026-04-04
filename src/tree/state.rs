@@ -130,24 +130,42 @@ impl TreeState {
     }
 
     pub fn move_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
+        let mut target = self.selected;
+        while target > 0 {
+            target -= 1;
+            if !self.dimmed.contains(&self.visible[target]) {
+                self.selected = target;
+                return;
+            }
         }
     }
 
     pub fn move_down(&mut self) {
-        if self.selected + 1 < self.visible.len() {
-            self.selected += 1;
+        let mut target = self.selected;
+        while target + 1 < self.visible.len() {
+            target += 1;
+            if !self.dimmed.contains(&self.visible[target]) {
+                self.selected = target;
+                return;
+            }
         }
     }
 
     pub fn go_top(&mut self) {
-        self.selected = 0;
+        for i in 0..self.visible.len() {
+            if !self.dimmed.contains(&self.visible[i]) {
+                self.selected = i;
+                return;
+            }
+        }
     }
 
     pub fn go_bottom(&mut self) {
-        if !self.visible.is_empty() {
-            self.selected = self.visible.len() - 1;
+        for i in (0..self.visible.len()).rev() {
+            if !self.dimmed.contains(&self.visible[i]) {
+                self.selected = i;
+                return;
+            }
         }
     }
 
