@@ -31,6 +31,14 @@ pub struct NodeStatus {
     pub has_outdated: bool,
 }
 
+/// Returns true if a vulnerability is still active (not fixed) for the given package version.
+fn is_vuln_active(fix_version: &Option<String>, pkg_version: &str) -> bool {
+    match fix_version {
+        Some(fix) if !fix.is_empty() => !osv::version_lte(fix, pkg_version),
+        _ => true, // unknown or empty fix = assume still affected
+    }
+}
+
 pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, SecurityInfo> {
     let mut results = HashMap::new();
     if packages.is_empty() {
@@ -79,12 +87,7 @@ pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Securit
                         }
                     }
                     // Remove vulns where the fix version is <= installed version
-                    info.vulns.retain(|vuln| {
-                        match &vuln.fix_version {
-                            Some(fix) => !osv::version_lte(fix, &pkg.version),
-                            None => true, // keep vulns with unknown fix version
-                        }
-                    });
+                    info.vulns.retain(|vuln| is_vuln_active(&vuln.fix_version, &pkg.version));
                 }
             }
             // Remove entries with no remaining vulns
@@ -136,7 +139,7 @@ pub fn check_versions(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Ver
                 let results = Arc::clone(&results);
                 std::thread::spawn(move || {
                     if let Ok(Some(latest)) = registry::check_latest(&pkg) {
-                        let is_outdated = latest != pkg.version;
+                        let is_outdated = osv::compare_versions(&pkg.version, &latest) == std::cmp::Ordering::Less;
                         results.lock().unwrap().insert(
                             path,
                             VersionInfo {
@@ -155,4 +158,95 @@ pub fn check_versions(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Ver
         }
     }
     Arc::try_unwrap(results).unwrap().into_inner().unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_vuln_active_fix_greater_than_installed() {
+        assert!(is_vuln_active(&Some("2.0.0".into()), "1.0.0"));
+    }
+
+    #[test]
+    fn is_vuln_active_fix_equal_to_installed() {
+        // fix == installed means the installed version has the fix
+        assert!(!is_vuln_active(&Some("1.0.0".into()), "1.0.0"));
+    }
+
+    #[test]
+    fn is_vuln_active_fix_less_than_installed() {
+        assert!(!is_vuln_active(&Some("1.0.0".into()), "2.0.0"));
+    }
+
+    #[test]
+    fn is_vuln_active_no_fix_version() {
+        assert!(is_vuln_active(&None, "1.0.0"));
+    }
+
+    #[test]
+    fn is_vuln_active_empty_fix_version() {
+        // Empty fix string should be treated as unknown = still active
+        assert!(is_vuln_active(&Some("".into()), "1.0.0"));
+    }
+
+    #[test]
+    fn filter_removes_all_vulns_clears_entry() {
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/test/pkg"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "fixed".into(),
+                    severity: None,
+                    fix_version: Some("1.0.0".into()),
+                }],
+            },
+        );
+
+        // Simulate the retain + remove logic from scan_vulns
+        for info in results.values_mut() {
+            info.vulns.retain(|v| is_vuln_active(&v.fix_version, "2.0.0"));
+        }
+        results.retain(|_, info| !info.vulns.is_empty());
+
+        assert!(results.is_empty(), "Entry should be removed when all vulns filtered");
+    }
+
+    #[test]
+    fn filter_keeps_active_vulns_removes_fixed() {
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/test/pkg"),
+            SecurityInfo {
+                vulns: vec![
+                    Vulnerability {
+                        id: "CVE-fixed".into(),
+                        summary: "already fixed".into(),
+                        severity: None,
+                        fix_version: Some("1.0.0".into()),
+                    },
+                    Vulnerability {
+                        id: "CVE-active".into(),
+                        summary: "still active".into(),
+                        severity: None,
+                        fix_version: Some("3.0.0".into()),
+                    },
+                ],
+            },
+        );
+
+        let pkg_version = "2.0.0";
+        for info in results.values_mut() {
+            info.vulns.retain(|v| is_vuln_active(&v.fix_version, pkg_version));
+        }
+        results.retain(|_, info| !info.vulns.is_empty());
+
+        assert_eq!(results.len(), 1);
+        let info = results.get(&PathBuf::from("/test/pkg")).unwrap();
+        assert_eq!(info.vulns.len(), 1);
+        assert_eq!(info.vulns[0].id, "CVE-active");
+    }
 }

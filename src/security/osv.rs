@@ -133,7 +133,9 @@ pub fn extract_fix_version(
                         }
                     }
                     if let (Some(i), Some(f)) = (intro, fix) {
-                        candidates.push((i, f));
+                        if !f.is_empty() {
+                            candidates.push((i, f));
+                        }
                     }
                 }
 
@@ -152,8 +154,8 @@ pub fn extract_fix_version(
                     return Some(fix.to_string());
                 }
 
-                // Fallback: return the last fix if no range matched
-                return candidates.last().map(|(_, f)| f.to_string());
+                // No range matched — we don't know which range applies
+                return None;
             }
         }
     }
@@ -161,7 +163,7 @@ pub fn extract_fix_version(
 }
 
 /// Compare two version strings numerically component by component.
-fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     let a_parts: Vec<u64> = a.split('.').filter_map(|s| s.parse().ok()).collect();
     let b_parts: Vec<u64> = b.split('.').filter_map(|s| s.parse().ok()).collect();
     let len = a_parts.len().max(b_parts.len());
@@ -362,6 +364,196 @@ mod tests {
         assert!(detail.affected[0].package.is_none());
         let fix = extract_fix_version(&detail, "anything", "PyPI", "0.5.0");
         assert_eq!(fix, None);
+    }
+
+    // --- Group 1: compare_versions ---
+
+    #[test]
+    fn compare_versions_basic_less() {
+        assert_eq!(compare_versions("1.2.3", "1.2.4"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_basic_greater() {
+        assert_eq!(compare_versions("2.0.0", "1.9.9"), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_versions_equal() {
+        assert_eq!(compare_versions("2.0.0", "2.0.0"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_versions_major_dominates() {
+        assert_eq!(compare_versions("1.9.9", "2.0.0"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_different_lengths_equal() {
+        // "1.2" treated as "1.2.0"
+        assert_eq!(compare_versions("1.2", "1.2.0"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_versions_different_lengths_less() {
+        assert_eq!(compare_versions("1.2", "1.2.1"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_prerelease_limitation() {
+        // Document known limitation: non-numeric parts are silently dropped
+        // "1.0.0rc1" → "0rc1" fails parse → [1, 0] compared to [1, 0, 0] = Equal
+        let result = compare_versions("1.0.0rc1", "1.0.0");
+        // Pre-release is NOT properly handled — this documents the limitation
+        assert!(result == std::cmp::Ordering::Equal || result == std::cmp::Ordering::Less,
+            "Pre-release should be <= stable, got {:?}", result);
+    }
+
+    #[test]
+    fn compare_versions_non_semantic() {
+        // "latest" has no numeric parts → []
+        assert_eq!(compare_versions("latest", "1.0.0"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_both_non_semantic() {
+        assert_eq!(compare_versions("latest", "main"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_versions_empty_strings() {
+        assert_eq!(compare_versions("", ""), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_versions_empty_vs_version() {
+        assert_eq!(compare_versions("", "1.0.0"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_long_versions() {
+        assert_eq!(compare_versions("1.2.3.4.5", "1.2.3.4.6"), std::cmp::Ordering::Less);
+    }
+
+    // --- Group 2: version_lte ---
+
+    #[test]
+    fn version_lte_basic_true() {
+        assert!(version_lte("1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn version_lte_equal_is_true() {
+        assert!(version_lte("1.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn version_lte_greater_is_false() {
+        assert!(!version_lte("2.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn version_lte_empty_lhs() {
+        assert!(version_lte("", "1.0.0"));
+    }
+
+    #[test]
+    fn version_lte_empty_rhs() {
+        assert!(!version_lte("1.0.0", ""));
+    }
+
+    #[test]
+    fn version_lte_both_empty() {
+        assert!(version_lte("", ""));
+    }
+
+    // --- Group 3: extract_fix_version edge cases ---
+
+    #[test]
+    fn extract_fix_version_empty_fix_string_returns_none() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "pkg", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": ""}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert_eq!(extract_fix_version(&detail, "pkg", "PyPI", "1.0.0"), None);
+    }
+
+    #[test]
+    fn extract_fix_version_multiple_events_last_wins() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "pkg", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [
+                    {"introduced": "0"}, {"fixed": "1.0"},
+                    {"introduced": "2.0"}, {"fixed": "3.0"}
+                ]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        // Last introduced=2.0, last fixed=3.0 → single candidate (2.0, 3.0)
+        assert_eq!(extract_fix_version(&detail, "pkg", "PyPI", "2.5"), Some("3.0".to_string()));
+    }
+
+    #[test]
+    fn extract_fix_version_no_range_matches_returns_none() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "pkg", "ecosystem": "PyPI"},
+                "ranges": [
+                    {"type": "ECOSYSTEM", "events": [{"introduced": "5.0"}, {"fixed": "5.1"}]},
+                    {"type": "ECOSYSTEM", "events": [{"introduced": "6.0"}, {"fixed": "6.1"}]}
+                ]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        // pkg_version 3.0 is before all ranges — no match, should return None (not fallback)
+        assert_eq!(extract_fix_version(&detail, "pkg", "PyPI", "3.0"), None);
+    }
+
+    #[test]
+    fn extract_fix_version_introduced_zero() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "pkg", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.5"}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert_eq!(extract_fix_version(&detail, "pkg", "PyPI", "0.5"), Some("1.5".to_string()));
+    }
+
+    #[test]
+    fn extract_fix_version_fix_equals_pkg_version() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "pkg", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        // Fix version is still extracted even when equal to installed — filtering happens elsewhere
+        assert_eq!(extract_fix_version(&detail, "pkg", "PyPI", "2.0.0"), Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn extract_fix_version_case_sensitive_name() {
+        let json = r#"{
+            "id": "CVE-test",
+            "affected": [{
+                "package": {"name": "requests", "ecosystem": "PyPI"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.0"}]}]
+            }]
+        }"#;
+        let detail = parse_vuln_detail(json).unwrap();
+        assert_eq!(extract_fix_version(&detail, "Requests", "PyPI", "1.0"), None);
     }
 
     #[test]
