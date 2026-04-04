@@ -15,7 +15,10 @@ pub fn render_delete_confirm(f: &mut Frame, items: &[&TreeNode]) {
     let count = items.len();
 
     let block = Block::default()
-        .title(format!(" Delete {count} item{}? ", if count == 1 { "" } else { "s" }))
+        .title(format!(
+            " Delete {count} item{}? ",
+            if count == 1 { "" } else { "s" }
+        ))
         .title_style(theme::DANGER)
         .borders(Borders::ALL)
         .border_style(theme::DIALOG_BORDER);
@@ -30,10 +33,7 @@ pub fn render_delete_confirm(f: &mut Frame, items: &[&TreeNode]) {
         lines.push(Line::from(vec![
             Span::styled("  ", theme::NORMAL),
             Span::styled(&item.name, theme::NORMAL),
-            Span::styled(
-                format!(" ({})", format_size(item.size, BINARY)),
-                theme::DIM,
-            ),
+            Span::styled(format!(" ({})", format_size(item.size, BINARY)), theme::DIM),
         ]));
     }
 
@@ -52,7 +52,9 @@ pub fn render_delete_confirm(f: &mut Frame, items: &[&TreeNode]) {
     lines.push(Line::from(""));
 
     // Safety summary
-    let all_safe = items.iter().all(|n| n.kind != crate::tree::node::CacheKind::Unknown);
+    let all_safe = items
+        .iter()
+        .all(|n| n.kind != crate::tree::node::CacheKind::Unknown);
     if all_safe {
         lines.push(Line::from(Span::styled(
             "  ● All items are safe to delete (re-downloadable)",
@@ -131,6 +133,16 @@ pub fn render_help(f: &mut Frame) {
             ]));
         }
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  By Julien Simon",
+        theme::DIM,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Docs & code: github.com/juliensimon/cache-commander",
+        theme::DIM,
+    )));
 
     let paragraph = Paragraph::new(lines);
     f.render_widget(paragraph, inner);
