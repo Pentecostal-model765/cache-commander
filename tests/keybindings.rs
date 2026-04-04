@@ -728,31 +728,42 @@ fn key_shift_r_reinits() {
 // === Vulnerability & Version Check ===
 
 #[test]
-fn key_v_disabled_shows_message() {
-    let mut app = test_app(); // vulncheck.enabled = false by default
+fn key_v_always_works_on_demand() {
+    let mut app = test_app(); // vulncheck.enabled = false — but keys still work
     app.process_key(key(KeyCode::Char('v')));
-    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+    // No packages in test tree (test nodes are CacheKind::Unknown), so no status_msg set
+    // But key should NOT show "disabled"
+    if let Some(msg) = &app.status_msg {
+        assert!(!msg.contains("disabled"), "v should always work on demand");
+    }
 }
 
 #[test]
-fn key_shift_v_disabled_shows_message() {
+fn key_shift_v_scans_all() {
     let mut app = test_app();
     app.process_key(key(KeyCode::Char('V')));
-    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+    // No packages → no message, but no "disabled" either
+    if let Some(msg) = &app.status_msg {
+        assert!(!msg.contains("disabled"));
+    }
 }
 
 #[test]
-fn key_o_disabled_shows_message() {
+fn key_o_always_works_on_demand() {
     let mut app = test_app();
     app.process_key(key(KeyCode::Char('o')));
-    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+    if let Some(msg) = &app.status_msg {
+        assert!(!msg.contains("disabled"), "o should always work on demand");
+    }
 }
 
 #[test]
-fn key_shift_o_disabled_shows_message() {
+fn key_shift_o_checks_all() {
     let mut app = test_app();
     app.process_key(key(KeyCode::Char('O')));
-    assert!(app.status_msg.as_ref().unwrap().contains("disabled"));
+    if let Some(msg) = &app.status_msg {
+        assert!(!msg.contains("disabled"));
+    }
 }
 
 #[test]

@@ -33,6 +33,8 @@ pub struct App {
     pub version_results: HashMap<PathBuf, crate::security::VersionInfo>,
     pub node_status: HashMap<PathBuf, crate::security::NodeStatus>,
     delete_candidates: Vec<std::path::PathBuf>,
+    auto_vulnscan_pending: bool,
+    auto_versioncheck_pending: bool,
 }
 
 impl App {
@@ -42,6 +44,8 @@ impl App {
         scan_tx: mpsc::Sender<crate::scanner::ScanRequest>,
     ) -> Self {
         let tree = TreeState::new(config.sort_by, config.sort_desc);
+        let auto_vuln = config.vulncheck.enabled;
+        let auto_ver = config.versioncheck.enabled;
         Self {
             tree,
             config,
@@ -55,6 +59,8 @@ impl App {
             version_results: HashMap::new(),
             node_status: HashMap::new(),
             delete_candidates: Vec::new(),
+            auto_vulnscan_pending: auto_vuln,
+            auto_versioncheck_pending: auto_ver,
         }
     }
 
@@ -91,6 +97,35 @@ impl App {
                     self.version_results.extend(results);
                     self.recompute_node_status();
                     self.status_msg = Some("Version check complete".to_string());
+                }
+            }
+        }
+
+        // Auto-scan on startup when CLI flags are set
+        if (self.auto_vulnscan_pending || self.auto_versioncheck_pending)
+            && !self.tree.nodes.is_empty()
+        {
+            let packages = self.collect_all_packages();
+            if !packages.is_empty() {
+                if self.auto_vulnscan_pending {
+                    self.auto_vulnscan_pending = false;
+                    self.status_msg = Some(format!(
+                        "Auto-scanning {} packages for vulnerabilities...",
+                        packages.len()
+                    ));
+                    let _ = self
+                        .scan_tx
+                        .send(crate::scanner::ScanRequest::ScanVulns(packages.clone()));
+                }
+                if self.auto_versioncheck_pending {
+                    self.auto_versioncheck_pending = false;
+                    self.status_msg = Some(format!(
+                        "Auto-checking {} packages for updates...",
+                        packages.len()
+                    ));
+                    let _ = self
+                        .scan_tx
+                        .send(crate::scanner::ScanRequest::CheckVersions(packages));
                 }
             }
         }
@@ -151,47 +186,31 @@ impl App {
             }
             KeyCode::Char('u') => self.tree.marked.clear(),
             KeyCode::Char('v') => {
-                if self.config.vulncheck.enabled {
-                    let packages = self.collect_packages_for_selected();
-                    if !packages.is_empty() {
-                        self.status_msg = Some("Scanning for vulnerabilities...".to_string());
-                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
-                    }
-                } else {
-                    self.status_msg = Some("Vulnerability scanning disabled — set vulncheck.enabled = true in config".to_string());
+                let packages = self.collect_packages_for_selected();
+                if !packages.is_empty() {
+                    self.status_msg = Some("Scanning for vulnerabilities...".to_string());
+                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
                 }
             }
             KeyCode::Char('V') => {
-                if self.config.vulncheck.enabled {
-                    let packages = self.collect_all_packages();
-                    if !packages.is_empty() {
-                        self.status_msg = Some(format!("Scanning {} packages for vulnerabilities...", packages.len()));
-                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
-                    }
-                } else {
-                    self.status_msg = Some("Vulnerability scanning disabled — set vulncheck.enabled = true in config".to_string());
+                let packages = self.collect_all_packages();
+                if !packages.is_empty() {
+                    self.status_msg = Some(format!("Scanning {} packages for vulnerabilities...", packages.len()));
+                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
                 }
             }
             KeyCode::Char('o') => {
-                if self.config.versioncheck.enabled {
-                    let packages = self.collect_packages_for_selected();
-                    if !packages.is_empty() {
-                        self.status_msg = Some("Checking for outdated versions...".to_string());
-                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
-                    }
-                } else {
-                    self.status_msg = Some("Version checking disabled — set versioncheck.enabled = true in config".to_string());
+                let packages = self.collect_packages_for_selected();
+                if !packages.is_empty() {
+                    self.status_msg = Some("Checking for outdated versions...".to_string());
+                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
                 }
             }
             KeyCode::Char('O') => {
-                if self.config.versioncheck.enabled {
-                    let packages = self.collect_all_packages();
-                    if !packages.is_empty() {
-                        self.status_msg = Some(format!("Checking {} packages for updates...", packages.len()));
-                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
-                    }
-                } else {
-                    self.status_msg = Some("Version checking disabled — set versioncheck.enabled = true in config".to_string());
+                let packages = self.collect_all_packages();
+                if !packages.is_empty() {
+                    self.status_msg = Some(format!("Checking {} packages for updates...", packages.len()));
+                    let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
                 }
             }
             KeyCode::Char('d') | KeyCode::Char('D') => {
@@ -437,14 +456,24 @@ impl App {
             "scanning...".to_string()
         };
 
-        let stats = format!(
-            "{}  │  {} root{}  │  sort: {} {}  │  ? help",
+        let vuln_count = self.vuln_results.values().map(|s| s.vulns.len()).sum::<usize>();
+        let outdated_count = self.version_results.values().filter(|v| v.is_outdated).count();
+
+        let mut stats = format!(
+            "{}  │  {} root{}  │  sort: {} {}",
             size_str,
             roots_count,
             if roots_count == 1 { "" } else { "s" },
             self.tree.sort_by.label(),
             if self.tree.sort_desc { "↓" } else { "↑" },
         );
+        if vuln_count > 0 {
+            stats.push_str(&format!("  │  ⚠ {} vuln{}", vuln_count, if vuln_count == 1 { "" } else { "s" }));
+        }
+        if outdated_count > 0 {
+            stats.push_str(&format!("  │  ↓ {} outdated", outdated_count));
+        }
+        stats.push_str("  │  ? help");
 
         use crate::ui::theme;
 
