@@ -6,18 +6,10 @@ pub fn metadata(path: &Path) -> Vec<MetadataField> {
 
     if path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(path) {
-            let mut files = 0;
-            let mut dirs = 0;
-            for entry in entries.filter_map(|e| e.ok()) {
-                if entry.path().is_dir() {
-                    dirs += 1;
-                } else {
-                    files += 1;
-                }
-            }
+            let count = entries.filter_map(|e| e.ok()).count();
             fields.push(MetadataField {
                 label: "Contents".to_string(),
-                value: format!("{files} files, {dirs} directories"),
+                value: format!("{count} items"),
             });
         }
     }

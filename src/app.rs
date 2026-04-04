@@ -27,7 +27,7 @@ pub struct App {
     pub scan_rx: mpsc::Receiver<ScanResult>,
     pub scan_tx: mpsc::Sender<crate::scanner::ScanRequest>,
     pub status_msg: Option<String>,
-    delete_candidates: Vec<usize>,
+    delete_candidates: Vec<std::path::PathBuf>,
 }
 
 impl App {
@@ -127,7 +127,7 @@ impl App {
             KeyCode::Char(' ') => self.tree.toggle_mark(),
             KeyCode::Char('d') => {
                 if let Some(idx) = self.tree.selected_node_index() {
-                    self.delete_candidates = vec![idx];
+                    self.delete_candidates = vec![self.tree.nodes[idx].path.clone()];
                     if self.config.confirm_delete {
                         self.mode = AppMode::Deleting;
                     } else {
@@ -137,7 +137,9 @@ impl App {
             }
             KeyCode::Char('D') => {
                 if !self.tree.marked.is_empty() {
-                    self.delete_candidates = self.tree.marked.iter().copied().collect();
+                    self.delete_candidates = self.tree.marked.iter()
+                        .filter_map(|&idx| self.tree.nodes.get(idx).map(|n| n.path.clone()))
+                        .collect();
                     if self.config.confirm_delete {
                         self.mode = AppMode::Deleting;
                     } else {
@@ -221,39 +223,37 @@ impl App {
     }
 
     fn perform_delete(&mut self) {
-        // Measure sizes from disk BEFORE deleting (node.size may be stale)
-        let candidates: Vec<(usize, std::path::PathBuf, u64)> = self
-            .delete_candidates
-            .iter()
-            .filter(|&&idx| idx < self.tree.nodes.len())
-            .map(|&idx| {
-                let path = self.tree.nodes[idx].path.clone();
-                let size = crate::scanner::walker::dir_size(&path);
-                (idx, path, size)
-            })
-            .collect();
-
-        let mut deleted = Vec::new();
+        let mut deleted_count = 0usize;
         let mut freed = 0u64;
+        let mut deleted_paths = Vec::new();
 
-        for (idx, path, size) in &candidates {
+        for path in &self.delete_candidates {
+            // Measure size before deleting
+            let size = crate::scanner::walker::dir_size(path);
             let ok = if path.is_dir() {
                 std::fs::remove_dir_all(path).is_ok()
             } else {
                 std::fs::remove_file(path).is_ok()
             };
             if ok {
-                deleted.push(*idx);
+                deleted_count += 1;
                 freed += size;
+                deleted_paths.push(path.clone());
             }
         }
 
-        if !deleted.is_empty() {
-            self.tree.remove_nodes(&deleted);
+        if deleted_count > 0 {
+            // Remove nodes from tree by matching paths
+            let indices: Vec<usize> = deleted_paths
+                .iter()
+                .filter_map(|p| self.tree.nodes.iter().position(|n| &n.path == p))
+                .collect();
+            self.tree.remove_nodes(&indices);
+
             self.status_msg = Some(format!(
                 "Deleted {} item{}, freed {}",
-                deleted.len(),
-                if deleted.len() == 1 { "" } else { "s" },
+                deleted_count,
+                if deleted_count == 1 { "" } else { "s" },
                 humansize::format_size(freed, humansize::BINARY)
             ));
         }
@@ -266,7 +266,7 @@ impl App {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5), // banner
+                Constraint::Length(10), // banner
                 Constraint::Min(0),   // main area
                 Constraint::Length(1), // bottom bar
             ])
@@ -282,7 +282,7 @@ impl App {
                 let items: Vec<&_> = self
                     .delete_candidates
                     .iter()
-                    .filter_map(|&idx| self.tree.nodes.get(idx))
+                    .filter_map(|p| self.tree.nodes.iter().find(|n| &n.path == p))
                     .collect();
                 dialogs::render_delete_confirm(f, &items);
             }
@@ -326,24 +326,44 @@ impl App {
 
         use crate::ui::theme;
 
-        let banner_lines = vec![
-            Line::from(vec![
-                Span::styled("  ╔═╗╔═╗╔╦╗╔╦╗ ", theme::TITLE),
-                Span::styled("", theme::DIM),
-            ]),
-            Line::from(vec![
-                Span::styled("  ║  ║  ║║║ ║║  ", theme::TITLE),
-                Span::styled("cache commander", theme::DIM),
-            ]),
-            Line::from(vec![
-                Span::styled("  ╚═╝╚═╝╩ ╩═╩╝  ", theme::TITLE),
-                Span::styled(&stats, theme::HEADER),
-            ]),
-            Line::from(Span::styled(
-                format!("  {}", "─".repeat(area.width.saturating_sub(3) as usize)),
-                theme::BORDER,
-            )),
+        let cyan = ratatui::style::Style::default()
+            .fg(ratatui::style::Color::Cyan)
+            .add_modifier(ratatui::style::Modifier::BOLD);
+        let gold = ratatui::style::Style::default().fg(ratatui::style::Color::Yellow);
+
+        let art: [(&str, &str); 6] = [
+            (" ██████╗ █████╗  ██████╗██╗  ██╗███████╗", " ██████╗ ██████╗ ███╗   ███╗███╗   ███╗ █████╗ ███╗   ██╗██████╗ ███████╗██████╗ "),
+            ("██╔════╝██╔══██╗██╔════╝██║  ██║██╔════╝", "██╔════╝██╔═══██╗████╗ ████║████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝██╔══██╗"),
+            ("██║     ███████║██║     ███████║█████╗  ", "██║     ██║   ██║██╔████╔██║██╔████╔██║███████║██╔██╗ ██║██║  ██║█████╗  ██████╔╝"),
+            ("██║     ██╔══██║██║     ██╔══██║██╔══╝  ", "██║     ██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗"),
+            ("╚██████╗██║  ██║╚██████╗██║  ██║███████╗", "╚██████╗╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝███████╗██║  ██║"),
+            (" ╚═════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝", " ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝"),
         ];
+
+        // Measure display width using char count (box-drawing chars are multi-byte in UTF-8)
+        let art_width = art[0].0.chars().count() + 2 + art[0].1.chars().count();
+        let term_width = area.width as usize;
+        let pad = if term_width > art_width { (term_width - art_width) / 2 } else { 0 };
+        let padding = " ".repeat(pad);
+
+        let mut banner_lines: Vec<Line> = vec![Line::from(Span::raw(""))];
+        banner_lines.extend(art.iter().map(|(cache, commander)| {
+            Line::from(vec![
+                Span::raw(&padding),
+                Span::styled(*cache, cyan),
+                Span::styled("  ", theme::DIM),
+                Span::styled(*commander, gold),
+            ])
+        }));
+
+        banner_lines.push(Line::from(Span::raw("")));
+
+        // Center the stats line too
+        let stats_pad = if term_width > stats.len() { (term_width - stats.len()) / 2 } else { 0 };
+        banner_lines.push(Line::from(vec![
+            Span::raw(" ".repeat(stats_pad)),
+            Span::styled(&stats, theme::HEADER),
+        ]));
 
         let banner = Paragraph::new(banner_lines).style(
             ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(15, 15, 26)),

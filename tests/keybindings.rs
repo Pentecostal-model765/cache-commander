@@ -346,6 +346,159 @@ fn key_s_cycles_sort() {
     assert_eq!(app.tree.sort_by, SortField::Size);
 }
 
+// === Bulk delete ===
+
+#[test]
+fn bulk_delete_multiple_marked_items() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir_a = tmp.path().join("aaa");
+    let dir_b = tmp.path().join("bbb");
+    let dir_c = tmp.path().join("ccc");
+    std::fs::create_dir_all(&dir_a).unwrap();
+    std::fs::create_dir_all(&dir_b).unwrap();
+    std::fs::create_dir_all(&dir_c).unwrap();
+    std::fs::write(dir_a.join("file.txt"), "data a").unwrap();
+    std::fs::write(dir_b.join("file.txt"), "data b").unwrap();
+
+    let config = Config {
+        roots: vec![],
+        sort_by: SortField::Name,
+        sort_desc: false,
+        confirm_delete: false,
+    };
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = scanner::start(result_tx);
+    let mut app = App::new(config, result_rx, scan_tx);
+
+    app.tree.set_roots(vec![
+        TreeNode {
+            path: dir_a.clone(), name: "aaa".into(), size: 100, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+        TreeNode {
+            path: dir_b.clone(), name: "bbb".into(), size: 200, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+        TreeNode {
+            path: dir_c.clone(), name: "ccc".into(), size: 300, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+    ]);
+
+    // Mark first two items with Space
+    app.process_key(key(KeyCode::Char(' '))); // mark aaa, advance to bbb
+    app.process_key(key(KeyCode::Char(' '))); // mark bbb, advance to ccc
+
+    assert_eq!(app.tree.marked.len(), 2);
+
+    // Bulk delete (no confirm)
+    app.process_key(key(KeyCode::Char('D')));
+
+    assert!(!dir_a.exists(), "aaa should be deleted");
+    assert!(!dir_b.exists(), "bbb should be deleted");
+    assert!(dir_c.exists(), "ccc should NOT be deleted");
+    assert_eq!(app.tree.nodes.len(), 1, "Only ccc should remain in tree");
+    assert_eq!(app.tree.nodes[0].name, "ccc");
+    assert!(app.status_msg.as_ref().unwrap().contains("2 items"));
+}
+
+#[test]
+fn bulk_delete_with_confirm_dialog() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir_a = tmp.path().join("aaa");
+    let dir_b = tmp.path().join("bbb");
+    std::fs::create_dir_all(&dir_a).unwrap();
+    std::fs::create_dir_all(&dir_b).unwrap();
+
+    let config = Config {
+        roots: vec![],
+        sort_by: SortField::Name,
+        sort_desc: false,
+        confirm_delete: true,
+    };
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = scanner::start(result_tx);
+    let mut app = App::new(config, result_rx, scan_tx);
+
+    app.tree.set_roots(vec![
+        TreeNode {
+            path: dir_a.clone(), name: "aaa".into(), size: 0, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+        TreeNode {
+            path: dir_b.clone(), name: "bbb".into(), size: 0, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+    ]);
+
+    // Mark both
+    app.process_key(key(KeyCode::Char(' ')));
+    app.process_key(key(KeyCode::Char(' ')));
+
+    // D enters delete mode
+    app.process_key(key(KeyCode::Char('D')));
+    assert_eq!(app.mode, AppMode::Deleting);
+    assert!(dir_a.exists(), "Should not delete before confirm");
+
+    // Confirm
+    app.process_key(key(KeyCode::Char('y')));
+    assert_eq!(app.mode, AppMode::Normal);
+    assert!(!dir_a.exists(), "aaa deleted after confirm");
+    assert!(!dir_b.exists(), "bbb deleted after confirm");
+    assert!(app.tree.nodes.is_empty());
+}
+
+#[test]
+fn delete_uses_paths_not_stale_indices() {
+    // Simulate the bug scenario: mark items, then sort changes indices
+    let tmp = tempfile::tempdir().unwrap();
+    let dir_a = tmp.path().join("aaa");
+    let dir_b = tmp.path().join("bbb");
+    std::fs::create_dir_all(&dir_a).unwrap();
+    std::fs::create_dir_all(&dir_b).unwrap();
+
+    let config = Config {
+        roots: vec![],
+        sort_by: SortField::Name,
+        sort_desc: false,
+        confirm_delete: false,
+    };
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = scanner::start(result_tx);
+    let mut app = App::new(config, result_rx, scan_tx);
+
+    app.tree.set_roots(vec![
+        TreeNode {
+            path: dir_a.clone(), name: "aaa".into(), size: 100, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+        TreeNode {
+            path: dir_b.clone(), name: "bbb".into(), size: 200, depth: 0,
+            parent: None, has_children: true, kind: ccmd::tree::node::CacheKind::Unknown,
+            last_modified: None, is_root: true, children_loaded: false,
+        },
+    ]);
+
+    // Mark aaa (index 0)
+    app.process_key(key(KeyCode::Char(' ')));
+
+    // Sort by size desc — bbb(200) moves to index 0, aaa(100) to index 1
+    app.process_key(key(KeyCode::Char('s'))); // cycle to name
+    app.process_key(key(KeyCode::Char('s'))); // cycle to modified
+    app.process_key(key(KeyCode::Char('s'))); // cycle back to size (desc)
+
+    // D should delete aaa (by path), not whatever is at the old index 0
+    app.process_key(key(KeyCode::Char('D')));
+    assert!(!dir_a.exists(), "aaa should be deleted (matched by path, not stale index)");
+    assert!(dir_b.exists(), "bbb should still exist");
+}
+
 // === Filter ===
 
 #[test]
