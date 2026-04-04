@@ -7,6 +7,8 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -27,6 +29,9 @@ pub struct App {
     pub scan_rx: mpsc::Receiver<ScanResult>,
     pub scan_tx: mpsc::Sender<crate::scanner::ScanRequest>,
     pub status_msg: Option<String>,
+    pub vuln_results: HashMap<PathBuf, crate::security::SecurityInfo>,
+    pub version_results: HashMap<PathBuf, crate::security::VersionInfo>,
+    pub node_status: HashMap<PathBuf, crate::security::NodeStatus>,
     delete_candidates: Vec<std::path::PathBuf>,
 }
 
@@ -46,6 +51,9 @@ impl App {
             scan_rx,
             scan_tx,
             status_msg: None,
+            vuln_results: HashMap::new(),
+            version_results: HashMap::new(),
+            node_status: HashMap::new(),
             delete_candidates: Vec::new(),
         }
     }
@@ -73,6 +81,16 @@ impl App {
                     if let Some(node) = self.tree.nodes.iter_mut().find(|n| n.path == path) {
                         node.size = size;
                     }
+                }
+                ScanResult::VulnsScanned(results) => {
+                    self.vuln_results.extend(results);
+                    self.recompute_node_status();
+                    self.status_msg = Some("Vulnerability scan complete".to_string());
+                }
+                ScanResult::VersionsChecked(results) => {
+                    self.version_results.extend(results);
+                    self.recompute_node_status();
+                    self.status_msg = Some("Version check complete".to_string());
                 }
             }
         }
@@ -132,6 +150,50 @@ impl App {
                 }
             }
             KeyCode::Char('u') => self.tree.marked.clear(),
+            KeyCode::Char('v') => {
+                if self.config.vulncheck.enabled {
+                    let packages = self.collect_packages_for_selected();
+                    if !packages.is_empty() {
+                        self.status_msg = Some("Scanning for vulnerabilities...".to_string());
+                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
+                    }
+                } else {
+                    self.status_msg = Some("Vulnerability scanning disabled — set vulncheck.enabled = true in config".to_string());
+                }
+            }
+            KeyCode::Char('V') => {
+                if self.config.vulncheck.enabled {
+                    let packages = self.collect_all_packages();
+                    if !packages.is_empty() {
+                        self.status_msg = Some(format!("Scanning {} packages for vulnerabilities...", packages.len()));
+                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::ScanVulns(packages));
+                    }
+                } else {
+                    self.status_msg = Some("Vulnerability scanning disabled — set vulncheck.enabled = true in config".to_string());
+                }
+            }
+            KeyCode::Char('o') => {
+                if self.config.versioncheck.enabled {
+                    let packages = self.collect_packages_for_selected();
+                    if !packages.is_empty() {
+                        self.status_msg = Some("Checking for outdated versions...".to_string());
+                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
+                    }
+                } else {
+                    self.status_msg = Some("Version checking disabled — set versioncheck.enabled = true in config".to_string());
+                }
+            }
+            KeyCode::Char('O') => {
+                if self.config.versioncheck.enabled {
+                    let packages = self.collect_all_packages();
+                    if !packages.is_empty() {
+                        self.status_msg = Some(format!("Checking {} packages for updates...", packages.len()));
+                        let _ = self.scan_tx.send(crate::scanner::ScanRequest::CheckVersions(packages));
+                    }
+                } else {
+                    self.status_msg = Some("Version checking disabled — set versioncheck.enabled = true in config".to_string());
+                }
+            }
             KeyCode::Char('d') | KeyCode::Char('D') => {
                 if !self.tree.marked.is_empty() {
                     self.delete_candidates = self.tree.marked.iter()
@@ -257,6 +319,69 @@ impl App {
 
         self.tree.marked.clear();
         self.delete_candidates.clear();
+    }
+
+    fn collect_packages_for_selected(&self) -> Vec<(PathBuf, crate::providers::PackageId)> {
+        let mut packages = Vec::new();
+        if let Some(idx) = self.tree.selected_node_index() {
+            let end = find_subtree_end(&self.tree.nodes, idx);
+            for i in idx..end {
+                let node = &self.tree.nodes[i];
+                if let Some(id) = crate::providers::package_id(node.kind, &node.path) {
+                    packages.push((node.path.clone(), id));
+                }
+            }
+        }
+        packages
+    }
+
+    fn collect_all_packages(&self) -> Vec<(PathBuf, crate::providers::PackageId)> {
+        self.tree
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                crate::providers::package_id(node.kind, &node.path)
+                    .map(|id| (node.path.clone(), id))
+            })
+            .collect()
+    }
+
+    pub fn recompute_node_status(&mut self) {
+        self.node_status.clear();
+
+        for path in self.vuln_results.keys() {
+            self.node_status
+                .entry(path.clone())
+                .or_default()
+                .has_vuln = true;
+        }
+        for (path, info) in &self.version_results {
+            if info.is_outdated {
+                self.node_status
+                    .entry(path.clone())
+                    .or_default()
+                    .has_outdated = true;
+            }
+        }
+
+        let paths: Vec<PathBuf> = self.node_status.keys().cloned().collect();
+        for path in paths {
+            let status = self.node_status[&path].clone();
+            if let Some(idx) = self.tree.nodes.iter().position(|n| n.path == path) {
+                let mut current = idx;
+                while let Some(parent_idx) = self.tree.nodes[current].parent {
+                    let parent_path = self.tree.nodes[parent_idx].path.clone();
+                    let parent_status = self.node_status.entry(parent_path).or_default();
+                    if status.has_vuln {
+                        parent_status.has_vuln = true;
+                    }
+                    if status.has_outdated {
+                        parent_status.has_outdated = true;
+                    }
+                    current = parent_idx;
+                }
+            }
+        }
     }
 
     pub fn draw(&mut self, f: &mut Frame) {

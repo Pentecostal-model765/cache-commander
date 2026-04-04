@@ -8,6 +8,8 @@ use std::sync::mpsc;
 pub enum ScanRequest {
     ScanRoots(Vec<PathBuf>),
     ExpandNode(PathBuf),
+    ScanVulns(Vec<(std::path::PathBuf, crate::providers::PackageId)>),
+    CheckVersions(Vec<(std::path::PathBuf, crate::providers::PackageId)>),
 }
 
 pub enum ScanResult {
@@ -16,6 +18,8 @@ pub enum ScanResult {
     ChildrenScanned(PathBuf, Vec<TreeNode>),
     /// Size update identified by path (safe even after tree mutations)
     SizeUpdated(PathBuf, u64),
+    VulnsScanned(std::collections::HashMap<std::path::PathBuf, crate::security::SecurityInfo>),
+    VersionsChecked(std::collections::HashMap<std::path::PathBuf, crate::security::VersionInfo>),
 }
 
 pub fn start(
@@ -54,6 +58,20 @@ pub fn start(
                             let _ = tx.send(ScanResult::SizeUpdated(root, size));
                         });
                     }
+                }
+                ScanRequest::ScanVulns(packages) => {
+                    let tx = result_tx.clone();
+                    std::thread::spawn(move || {
+                        let results = crate::security::scan_vulns(&packages);
+                        let _ = tx.send(ScanResult::VulnsScanned(results));
+                    });
+                }
+                ScanRequest::CheckVersions(packages) => {
+                    let tx = result_tx.clone();
+                    std::thread::spawn(move || {
+                        let results = crate::security::check_versions(&packages);
+                        let _ = tx.send(ScanResult::VersionsChecked(results));
+                    });
                 }
                 ScanRequest::ExpandNode(path) => {
                     // Send children immediately with metadata but size=0
