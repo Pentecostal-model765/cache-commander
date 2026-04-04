@@ -39,6 +39,9 @@ pub fn semantic_name(path: &Path) -> Option<String> {
 
 pub fn package_id(path: &Path) -> Option<super::PackageId> {
     let name = path.file_name()?.to_string_lossy().to_string();
+
+    // Only match .crate files — these are the canonical cached packages.
+    // Skip extracted src/ dirs to avoid double-counting.
     if name.ends_with(".crate") {
         let stem = name.strip_suffix(".crate")?;
         if let Some(pos) = stem.rfind('-') {
@@ -51,16 +54,6 @@ pub fn package_id(path: &Path) -> Option<super::PackageId> {
                     version: ver.to_string(),
                 });
             }
-        }
-    }
-    if name.contains('-') {
-        let parts: Vec<&str> = name.rsplitn(2, '-').collect();
-        if parts.len() == 2 && parts[0].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-            return Some(super::PackageId {
-                ecosystem: "crates.io",
-                name: parts[1].to_string(),
-                version: parts[0].to_string(),
-            });
         }
     }
     None
