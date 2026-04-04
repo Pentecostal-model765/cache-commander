@@ -395,6 +395,13 @@ impl App {
 
         self.tree.marked.clear();
         self.delete_candidates.clear();
+
+        // Recompute dimmed set after tree mutation so filter stays consistent
+        if self.tree.filter_mode != crate::tree::state::FilterMode::None {
+            self.recompute_node_status();
+            self.tree.recompute_dimmed(&self.node_status);
+            self.tree.snap_selection_to_non_dimmed();
+        }
     }
 
 

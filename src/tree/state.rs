@@ -264,6 +264,10 @@ impl TreeState {
 
     pub fn toggle_mark(&mut self) {
         if let Some(&idx) = self.visible.get(self.selected) {
+            // Don't allow marking dimmed nodes
+            if self.dimmed.contains(&idx) {
+                return;
+            }
             if self.marked.contains(&idx) {
                 self.marked.remove(&idx);
             } else {
