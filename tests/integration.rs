@@ -546,3 +546,85 @@ fn osv_query_finds_urllib3_vulns() {
         }
     }
 }
+
+/// Create a fake npx cache with node_modules for npm scanning tests.
+fn create_npx_cache(root: &std::path::Path) {
+    // Root must be named .npm for detect() to identify children as CacheKind::Npm
+    let npx = root.join(".npm/_npx/abc123");
+    std::fs::create_dir_all(&npx).unwrap();
+    std::fs::write(
+        npx.join("package.json"),
+        r#"{"dependencies":{"express":"^4"},"_npx":{"packages":["express"]}}"#,
+    ).unwrap();
+
+    // Direct dependency
+    let express = npx.join("node_modules/express");
+    std::fs::create_dir_all(&express).unwrap();
+    std::fs::write(
+        express.join("package.json"),
+        r#"{"name":"express","version":"4.21.0","scripts":{"test":"mocha"}}"#,
+    ).unwrap();
+
+    // Transitive dependency with install script
+    let native = npx.join("node_modules/express/node_modules/native-addon");
+    std::fs::create_dir_all(&native).unwrap();
+    std::fs::write(
+        native.join("package.json"),
+        r#"{"name":"native-addon","version":"1.0.0","scripts":{"postinstall":"node-gyp rebuild"}}"#,
+    ).unwrap();
+
+    // Transitive dependency without install script
+    let qs = npx.join("node_modules/qs");
+    std::fs::create_dir_all(&qs).unwrap();
+    std::fs::write(
+        qs.join("package.json"),
+        r#"{"name":"qs","version":"6.11.0","scripts":{"test":"tape"}}"#,
+    ).unwrap();
+}
+
+#[test]
+fn npm_discover_packages_finds_node_modules() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_npx_cache(tmp.path());
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().join(".npm")]);
+
+    let names: Vec<&str> = packages.iter().map(|(_, id)| id.name.as_str()).collect();
+    assert!(names.contains(&"express"), "Should find express: {:?}", names);
+    assert!(names.contains(&"qs"), "Should find qs: {:?}", names);
+    assert!(names.contains(&"native-addon"), "Should find native-addon: {:?}", names);
+    assert_eq!(packages.iter().filter(|(_, id)| id.ecosystem == "npm").count(), 3);
+}
+
+#[test]
+fn npm_install_script_detection() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_npx_cache(tmp.path());
+
+    let native = tmp.path().join(".npm/_npx/abc123/node_modules/express/node_modules/native-addon");
+    let meta = ccmd::providers::metadata(ccmd::tree::node::CacheKind::Npm, &native);
+
+    let scripts_field = meta.iter().find(|f| f.label.contains("Scripts"));
+    assert!(scripts_field.is_some(), "Should detect install scripts: {:?}", meta);
+    assert!(scripts_field.unwrap().value.contains("postinstall"));
+}
+
+#[test]
+fn npm_dep_depth_in_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_npx_cache(tmp.path());
+
+    // Direct dep
+    let express = tmp.path().join(".npm/_npx/abc123/node_modules/express");
+    let meta = ccmd::providers::metadata(ccmd::tree::node::CacheKind::Npm, &express);
+    let depth_field = meta.iter().find(|f| f.label == "Dep depth");
+    assert!(depth_field.is_some(), "Should show dep depth: {:?}", meta);
+    assert_eq!(depth_field.unwrap().value, "direct");
+
+    // Transitive dep
+    let native = tmp.path().join(".npm/_npx/abc123/node_modules/express/node_modules/native-addon");
+    let meta = ccmd::providers::metadata(ccmd::tree::node::CacheKind::Npm, &native);
+    let depth_field = meta.iter().find(|f| f.label == "Dep depth");
+    assert!(depth_field.is_some());
+    assert!(depth_field.unwrap().value.contains("transitive"));
+}
