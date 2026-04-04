@@ -237,6 +237,17 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('c') => {
+                if let Some(cmd) = self.upgrade_command_for_selected() {
+                    if copy_to_clipboard(&cmd) {
+                        self.status_msg = Some(format!("Copied: {}", cmd));
+                    } else {
+                        self.status_msg = Some(format!("→ {}", cmd));
+                    }
+                } else {
+                    self.status_msg = Some("No upgrade command for this item".into());
+                }
+            }
             KeyCode::Char('s') => self.tree.cycle_sort(),
             KeyCode::Char('f') => {
                 if self.node_status.is_empty() {
@@ -404,6 +415,27 @@ impl App {
         }
     }
 
+
+    fn upgrade_command_for_selected(&self) -> Option<String> {
+        let node = self.tree.selected_node()?;
+        let pkg_name = extract_package_name(&node.name);
+        let kind = node.kind;
+
+        // Prefer fix_version from vuln data, fall back to latest from version check
+        if let Some(sec) = self.vuln_results.get(&node.path) {
+            for vuln in &sec.vulns {
+                if let Some(fix) = &vuln.fix_version {
+                    return crate::providers::upgrade_command(kind, &pkg_name, fix);
+                }
+            }
+        }
+        if let Some(ver) = self.version_results.get(&node.path) {
+            if ver.is_outdated {
+                return crate::providers::upgrade_command(kind, &pkg_name, &ver.latest);
+            }
+        }
+        None
+    }
 
     pub fn recompute_node_status(&mut self) {
         self.node_status.clear();
@@ -634,6 +666,49 @@ impl App {
         );
         f.render_widget(bar, area);
     }
+}
+
+fn extract_package_name(name: &str) -> String {
+    let stripped = if let Some(rest) = name.strip_prefix('[') {
+        rest.split_once("] ").map(|(_, n)| n).unwrap_or(name)
+    } else {
+        name
+    };
+    stripped.split_whitespace().next().unwrap_or(stripped).to_string()
+}
+
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    // macOS
+    if let Ok(mut child) = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        return child.wait().map_or(false, |s| s.success());
+    }
+
+    // Linux (xclip)
+    if let Ok(mut child) = Command::new("xclip")
+        .args(["-selection", "clipboard"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        return child.wait().map_or(false, |s| s.success());
+    }
+
+    false
 }
 
 fn find_subtree_end(nodes: &[crate::tree::node::TreeNode], idx: usize) -> usize {
