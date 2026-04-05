@@ -238,7 +238,12 @@ src/
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request on [GitHub](https://github.com/juliensimon/cache-commander).
+Contributions and feedback are welcome!
+
+- **Bug reports & feature requests** — [open an issue](https://github.com/juliensimon/cache-commander/issues)
+- **Pull requests** — fork the repo, create a branch, and submit a PR. Please run `cargo fmt` and `cargo clippy` before submitting.
+- **New cache providers** — adding support for a new tool? See `src/providers/` for examples. Each provider is a single file with a detection function and a name decoder.
+- **Questions & ideas** — feel free to start a [discussion](https://github.com/juliensimon/cache-commander/discussions) or reach out directly.
 
 ## Author
 
