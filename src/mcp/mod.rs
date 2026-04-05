@@ -200,9 +200,12 @@ impl CcmdMcp {
                     let name_match = query
                         .as_ref()
                         .is_none_or(|q| node.name.to_lowercase().contains(q));
-                    let eco_match = ecosystem
-                        .as_ref()
-                        .is_none_or(|eco| node.kind.label().eq_ignore_ascii_case(eco));
+                    let eco_match = ecosystem.as_ref().is_none_or(|eco| {
+                        node.kind
+                            .label()
+                            .to_lowercase()
+                            .contains(&eco.to_lowercase())
+                    });
                     name_match && eco_match
                 })
                 .map(|node| {
@@ -257,9 +260,12 @@ impl CcmdMcp {
                 let nodes = server.walk_roots();
                 nodes.into_iter().find(|node| {
                     let name_match = node.name.to_lowercase().contains(&name);
-                    let eco_match = ecosystem
-                        .as_ref()
-                        .is_none_or(|eco| node.kind.label().eq_ignore_ascii_case(eco));
+                    let eco_match = ecosystem.as_ref().is_none_or(|eco| {
+                        node.kind
+                            .label()
+                            .to_lowercase()
+                            .contains(&eco.to_lowercase())
+                    });
                     name_match && eco_match
                 })
             })
@@ -697,7 +703,7 @@ impl ServerHandler for CcmdMcp {
                 ..Default::default()
             },
             server_info: Implementation {
-                name: "ccmd".to_string(),
+                name: "Cache Commander".to_string(),
                 title: Some("Cache Commander".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 description: Some(

@@ -77,8 +77,8 @@ fn mcp_server_responds_to_initialize() {
         .as_str()
         .expect("serverInfo.name should be a string");
     assert!(
-        server_name.contains("ccmd"),
-        "Server info name should contain 'ccmd', got: {server_name:?}"
+        server_name.contains("Cache Commander"),
+        "Server info name should contain 'Cache Commander', got: {server_name:?}"
     );
 
     // 2. Send initialized notification
