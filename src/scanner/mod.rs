@@ -157,8 +157,8 @@ pub fn start(result_tx: mpsc::Sender<ScanResult>) -> mpsc::Sender<ScanRequest> {
     request_tx
 }
 
-fn run_brew_outdated(
-) -> std::collections::HashMap<String, crate::providers::homebrew::BrewOutdatedEntry> {
+fn run_brew_outdated()
+-> std::collections::HashMap<String, crate::providers::homebrew::BrewOutdatedEntry> {
     let output = match std::process::Command::new("brew")
         .args(["outdated", "--json=v2"])
         .env("HOMEBREW_NO_AUTO_UPDATE", "1")

@@ -165,42 +165,42 @@ pub fn metadata(path: &Path) -> Vec<MetadataField> {
 
     // Count snapshots
     let snapshots_dir = path.join("snapshots");
-    if snapshots_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
-            let count = entries.filter_map(|e| e.ok()).count();
-            fields.push(MetadataField {
-                label: "Revisions".to_string(),
-                value: count.to_string(),
-            });
-        }
+    if snapshots_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&snapshots_dir)
+    {
+        let count = entries.filter_map(|e| e.ok()).count();
+        fields.push(MetadataField {
+            label: "Revisions".to_string(),
+            value: count.to_string(),
+        });
     }
 
     // Count blobs
     let blobs_dir = path.join("blobs");
-    if blobs_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&blobs_dir) {
-            let count = entries.filter_map(|e| e.ok()).count();
-            fields.push(MetadataField {
-                label: "Files".to_string(),
-                value: count.to_string(),
-            });
-        }
+    if blobs_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&blobs_dir)
+    {
+        let count = entries.filter_map(|e| e.ok()).count();
+        fields.push(MetadataField {
+            label: "Files".to_string(),
+            value: count.to_string(),
+        });
     }
 
     // Check refs
     let refs_dir = path.join("refs");
-    if refs_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&refs_dir) {
-            let refs: Vec<String> = entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-            if !refs.is_empty() {
-                fields.push(MetadataField {
-                    label: "Refs".to_string(),
-                    value: refs.join(", "),
-                });
-            }
+    if refs_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&refs_dir)
+    {
+        let refs: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        if !refs.is_empty() {
+            fields.push(MetadataField {
+                label: "Refs".to_string(),
+                value: refs.join(", "),
+            });
         }
     }
 

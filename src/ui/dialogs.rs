@@ -1,10 +1,10 @@
 use crate::tree::node::TreeNode;
 use crate::ui::theme;
-use humansize::{format_size, BINARY};
+use humansize::{BINARY, format_size};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 pub fn render_delete_confirm(f: &mut Frame, items: &[&TreeNode]) {
     let area = centered_rect(50, 40, f.area());

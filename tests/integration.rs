@@ -48,9 +48,9 @@ fn scanner_discovers_roots_and_computes_sizes() {
     let scan_tx = ccmd::scanner::start(result_tx);
 
     scan_tx
-        .send(ccmd::scanner::ScanRequest::ScanRoots(vec![tmp
-            .path()
-            .to_path_buf()]))
+        .send(ccmd::scanner::ScanRequest::ScanRoots(vec![
+            tmp.path().to_path_buf(),
+        ]))
         .unwrap();
 
     // First message: roots with size=0 (immediate)

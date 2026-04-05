@@ -97,10 +97,12 @@ mod tests {
 
         let children = list_children(tmp.path());
         assert_eq!(children.len(), 3); // file1, file2, subdir
-                                       // nested.txt should NOT appear
-        assert!(!children
-            .iter()
-            .any(|p| p.file_name().unwrap() == "nested.txt"));
+        // nested.txt should NOT appear
+        assert!(
+            !children
+                .iter()
+                .any(|p| p.file_name().unwrap() == "nested.txt")
+        );
     }
 
     #[test]

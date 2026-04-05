@@ -10,10 +10,10 @@ pub fn semantic_name(path: &Path) -> Option<String> {
         "_npx" => Some("npx Cache".to_string()),
         _ => {
             // Hash directories inside _npx: read package.json for package name
-            if path.is_dir() {
-                if let Some(pkg) = npx_package_name(path) {
-                    return Some(pkg);
-                }
+            if path.is_dir()
+                && let Some(pkg) = npx_package_name(path)
+            {
+                return Some(pkg);
             }
             None
         }
@@ -32,23 +32,23 @@ fn npx_package_name(path: &Path) -> Option<String> {
         if let Some(pkg_pos) = rest.find("\"packages\"") {
             let pkg_rest = &rest[pkg_pos..];
             // Find the array contents
-            if let Some(bracket_start) = pkg_rest.find('[') {
-                if let Some(bracket_end) = pkg_rest[bracket_start..].find(']') {
-                    let array_str = &pkg_rest[bracket_start + 1..bracket_start + bracket_end];
-                    let packages: Vec<&str> = array_str
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').trim())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if packages.len() == 1 {
-                        return Some(format!("[npx] {}", packages[0]));
-                    } else if packages.len() > 1 {
-                        return Some(format!(
-                            "[npx] {} (+{} more)",
-                            packages[0],
-                            packages.len() - 1
-                        ));
-                    }
+            if let Some(bracket_start) = pkg_rest.find('[')
+                && let Some(bracket_end) = pkg_rest[bracket_start..].find(']')
+            {
+                let array_str = &pkg_rest[bracket_start + 1..bracket_start + bracket_end];
+                let packages: Vec<&str> = array_str
+                    .split(',')
+                    .map(|s| s.trim().trim_matches('"').trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if packages.len() == 1 {
+                    return Some(format!("[npx] {}", packages[0]));
+                } else if packages.len() > 1 {
+                    return Some(format!(
+                        "[npx] {} (+{} more)",
+                        packages[0],
+                        packages.len() - 1
+                    ));
                 }
             }
         }
@@ -57,30 +57,30 @@ fn npx_package_name(path: &Path) -> Option<String> {
     // Fallback: look at dependencies
     if let Some(deps_pos) = content.find("\"dependencies\"") {
         let rest = &content[deps_pos..];
-        if let Some(brace_start) = rest.find('{') {
-            if let Some(brace_end) = rest[brace_start..].find('}') {
-                let deps_str = &rest[brace_start + 1..brace_start + brace_end];
-                let dep_names: Vec<&str> = deps_str
-                    .split(',')
-                    .filter_map(|entry| {
-                        let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            Some(parts[0].trim().trim_matches('"').trim())
-                        } else {
-                            None
-                        }
-                    })
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if dep_names.len() == 1 {
-                    return Some(format!("[npx] {}", dep_names[0]));
-                } else if dep_names.len() > 1 {
-                    return Some(format!(
-                        "[npx] {} (+{} more)",
-                        dep_names[0],
-                        dep_names.len() - 1
-                    ));
-                }
+        if let Some(brace_start) = rest.find('{')
+            && let Some(brace_end) = rest[brace_start..].find('}')
+        {
+            let deps_str = &rest[brace_start + 1..brace_start + brace_end];
+            let dep_names: Vec<&str> = deps_str
+                .split(',')
+                .filter_map(|entry| {
+                    let parts: Vec<&str> = entry.splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        Some(parts[0].trim().trim_matches('"').trim())
+                    } else {
+                        None
+                    }
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
+            if dep_names.len() == 1 {
+                return Some(format!("[npx] {}", dep_names[0]));
+            } else if dep_names.len() > 1 {
+                return Some(format!(
+                    "[npx] {} (+{} more)",
+                    dep_names[0],
+                    dep_names.len() - 1
+                ));
             }
         }
     }

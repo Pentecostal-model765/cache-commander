@@ -3,10 +3,10 @@ use crate::scanner::ScanResult;
 use crate::tree::state::TreeState;
 use crate::ui::{detail_panel, dialogs, tree_panel};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -198,10 +198,10 @@ impl App {
     }
 
     pub fn handle_event(&mut self) -> bool {
-        if event::poll(Duration::from_millis(60)).unwrap_or(false) {
-            if let Ok(Event::Key(key)) = event::read() {
-                self.process_key(key);
-            }
+        if event::poll(Duration::from_millis(60)).unwrap_or(false)
+            && let Ok(Event::Key(key)) = event::read()
+        {
+            self.process_key(key);
         }
         self.tick();
         self.should_quit
@@ -497,10 +497,10 @@ impl App {
                 }
             }
         }
-        if let Some(ver) = self.version_results.get(&node.path) {
-            if ver.is_outdated {
-                return crate::providers::upgrade_command(kind, &pkg_name, &ver.latest);
-            }
+        if let Some(ver) = self.version_results.get(&node.path)
+            && ver.is_outdated
+        {
+            return crate::providers::upgrade_command(kind, &pkg_name, &ver.latest);
         }
         None
     }

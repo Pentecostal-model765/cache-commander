@@ -80,13 +80,13 @@ pub fn extract_manifest_metadata(json: &str) -> Vec<MetadataField> {
         });
     }
 
-    if let Some(size_str) = extract_json_string_field(rest, "sh.brew.bottle.installed_size") {
-        if let Ok(bytes) = size_str.parse::<u64>() {
-            fields.push(MetadataField {
-                label: "Installed".to_string(),
-                value: format_bytes(bytes),
-            });
-        }
+    if let Some(size_str) = extract_json_string_field(rest, "sh.brew.bottle.installed_size")
+        && let Ok(bytes) = size_str.parse::<u64>()
+    {
+        fields.push(MetadataField {
+            label: "Installed".to_string(),
+            value: format_bytes(bytes),
+        });
     }
 
     if let Some(tab_str) = extract_json_string_field(rest, "sh.brew.tab") {
@@ -316,10 +316,10 @@ pub fn parse_brew_outdated(json: &str) -> std::collections::HashMap<String, Brew
                 pinned,
             };
             // Also insert under short name for tap-qualified names like "user/tap/formula"
-            if let Some(short) = name.rsplit('/').next() {
-                if short != name {
-                    results.insert(short.to_string(), entry.clone());
-                }
+            if let Some(short) = name.rsplit('/').next()
+                && short != name
+            {
+                results.insert(short.to_string(), entry.clone());
             }
             results.insert(name, entry);
         }

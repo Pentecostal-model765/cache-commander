@@ -127,10 +127,10 @@ impl Config {
         if !cli.roots.is_empty() {
             config.roots = cli.roots;
         }
-        if let Some(sort) = cli.sort {
-            if let Some(field) = SortField::from_str_opt(&sort) {
-                config.sort_by = field;
-            }
+        if let Some(sort) = cli.sort
+            && let Some(field) = SortField::from_str_opt(&sort)
+        {
+            config.sort_by = field;
         }
         if cli.no_confirm {
             config.confirm_delete = false;

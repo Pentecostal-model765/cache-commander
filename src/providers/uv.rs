@@ -17,10 +17,10 @@ pub fn semantic_name(path: &Path) -> Option<String> {
         _ if name.starts_with(".tmp") => Some("[tmp] build artifact".to_string()),
         _ => {
             // Hash directories inside archive-v0: try to identify by dist-info
-            if path.is_dir() {
-                if let Some(pkg) = identify_package_from_dist_info(path) {
-                    return Some(pkg);
-                }
+            if path.is_dir()
+                && let Some(pkg) = identify_package_from_dist_info(path)
+            {
+                return Some(pkg);
             }
             None
         }

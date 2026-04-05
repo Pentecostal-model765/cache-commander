@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ccmd": {
+      "command": "/Users/julien/Development/repos/cache-explorer/target/release/ccmd",
+      "args": ["mcp"]
+    }
+  }
+}

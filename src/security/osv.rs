@@ -119,47 +119,48 @@ pub fn extract_fix_version(
     pkg_version: &str,
 ) -> Option<String> {
     for affected in &detail.affected {
-        if let Some(pkg) = &affected.package {
-            if pkg.name == package_name && pkg.ecosystem == ecosystem {
-                // Collect all (introduced, fixed) pairs from ranges
-                let mut candidates: Vec<(&str, &str)> = Vec::new();
-                for range in &affected.ranges {
-                    let mut intro: Option<&str> = None;
-                    let mut fix: Option<&str> = None;
-                    for event in &range.events {
-                        if let Some(i) = &event.introduced {
-                            intro = Some(i);
-                        }
-                        if let Some(f) = &event.fixed {
-                            fix = Some(f);
-                        }
+        if let Some(pkg) = &affected.package
+            && pkg.name == package_name
+            && pkg.ecosystem == ecosystem
+        {
+            // Collect all (introduced, fixed) pairs from ranges
+            let mut candidates: Vec<(&str, &str)> = Vec::new();
+            for range in &affected.ranges {
+                let mut intro: Option<&str> = None;
+                let mut fix: Option<&str> = None;
+                for event in &range.events {
+                    if let Some(i) = &event.introduced {
+                        intro = Some(i);
                     }
-                    if let (Some(i), Some(f)) = (intro, fix) {
-                        if !f.is_empty() {
-                            candidates.push((i, f));
-                        }
+                    if let Some(f) = &event.fixed {
+                        fix = Some(f);
                     }
                 }
-
-                if candidates.is_empty() {
-                    return None;
+                if let (Some(i), Some(f)) = (intro, fix)
+                    && !f.is_empty()
+                {
+                    candidates.push((i, f));
                 }
+            }
 
-                // Find the best matching range: the one whose introduced version
-                // is <= pkg_version with the highest introduced version.
-                // This picks the most specific range that covers our version.
-                let best = candidates
-                    .iter()
-                    .filter(|(intro, _)| version_lte(intro, pkg_version))
-                    .max_by(|(a, _), (b, _)| compare_versions(a, b));
-
-                if let Some((_, fix)) = best {
-                    return Some(fix.to_string());
-                }
-
-                // No range matched — we don't know which range applies
+            if candidates.is_empty() {
                 return None;
             }
+
+            // Find the best matching range: the one whose introduced version
+            // is <= pkg_version with the highest introduced version.
+            // This picks the most specific range that covers our version.
+            let best = candidates
+                .iter()
+                .filter(|(intro, _)| version_lte(intro, pkg_version))
+                .max_by(|(a, _), (b, _)| compare_versions(a, b));
+
+            if let Some((_, fix)) = best {
+                return Some(fix.to_string());
+            }
+
+            // No range matched — we don't know which range applies
+            return None;
         }
     }
     None

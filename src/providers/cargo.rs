@@ -90,13 +90,13 @@ pub fn metadata(path: &Path) -> Vec<MetadataField> {
             // Count .crate files in subdirs
             let mut count = 0;
             for entry in entries.filter_map(|e| e.ok()) {
-                if entry.path().is_dir() {
-                    if let Ok(sub) = std::fs::read_dir(entry.path()) {
-                        count += sub
-                            .filter_map(|e| e.ok())
-                            .filter(|e| e.path().extension().map(|x| x == "crate").unwrap_or(false))
-                            .count();
-                    }
+                if entry.path().is_dir()
+                    && let Ok(sub) = std::fs::read_dir(entry.path())
+                {
+                    count += sub
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().extension().map(|x| x == "crate").unwrap_or(false))
+                        .count();
                 }
             }
             if count > 0 {

@@ -169,10 +169,10 @@ impl TreeState {
         if self.visible.is_empty() || self.dimmed.is_empty() {
             return;
         }
-        if let Some(&idx) = self.visible.get(self.selected) {
-            if !self.dimmed.contains(&idx) {
-                return; // already on a non-dimmed node
-            }
+        if let Some(&idx) = self.visible.get(self.selected)
+            && !self.dimmed.contains(&idx)
+        {
+            return; // already on a non-dimmed node
         }
         // Try downward first, then upward
         for i in self.selected..self.visible.len() {
@@ -295,10 +295,10 @@ impl TreeState {
 
         // Shift indices in existing nodes that come after insert_at
         for node in &mut self.nodes {
-            if let Some(ref mut p) = node.parent {
-                if *p >= insert_at {
-                    *p += count;
-                }
+            if let Some(ref mut p) = node.parent
+                && *p >= insert_at
+            {
+                *p += count;
             }
         }
 
@@ -403,11 +403,7 @@ impl TreeState {
                 SortField::Name => a[0].name.to_lowercase().cmp(&b[0].name.to_lowercase()),
                 SortField::Modified => a[0].last_modified.cmp(&b[0].last_modified),
             };
-            if sort_desc {
-                ord.reverse()
-            } else {
-                ord
-            }
+            if sort_desc { ord.reverse() } else { ord }
         });
 
         // Save expanded/marked paths for remapping
@@ -503,11 +499,7 @@ impl TreeState {
                     .last_modified
                     .cmp(&self.nodes[b].last_modified),
             };
-            if sort_desc {
-                ord.reverse()
-            } else {
-                ord
-            }
+            if sort_desc { ord.reverse() } else { ord }
         });
 
         let already_sorted = root_indices.windows(2).all(|w| w[0] < w[1]);
@@ -539,10 +531,10 @@ impl TreeState {
 
             // Adjust parent references
             for node in &mut self.nodes {
-                if let Some(ref mut p) = node.parent {
-                    if *p > idx {
-                        *p = p.saturating_sub(count);
-                    }
+                if let Some(ref mut p) = node.parent
+                    && *p > idx
+                {
+                    *p = p.saturating_sub(count);
                 }
             }
 
@@ -1330,7 +1322,7 @@ mod tests {
     fn filter_roots_always_visible() {
         let mut tree = tree_with_roots();
         tree.set_filter("zzzzz"); // matches nothing
-                                  // All roots should still be visible
+        // All roots should still be visible
         assert_eq!(tree.visible.len(), 3);
     }
 

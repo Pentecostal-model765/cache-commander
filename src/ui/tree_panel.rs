@@ -1,12 +1,12 @@
 use crate::tree::state::TreeState;
 use crate::ui::theme;
-use humansize::{format_size, BINARY};
+use humansize::{BINARY, format_size};
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
 };
-use ratatui::Frame;
 
 pub fn render(
     f: &mut Frame,

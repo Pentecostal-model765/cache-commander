@@ -2,11 +2,11 @@ use crate::providers::{self, SafetyLevel};
 use crate::tree::node::CacheKind;
 use crate::tree::state::TreeState;
 use crate::ui::theme;
-use humansize::{format_size, BINARY};
+use humansize::{BINARY, format_size};
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 use std::time::SystemTime;
 
 pub fn render(
