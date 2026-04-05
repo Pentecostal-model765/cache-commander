@@ -4,9 +4,10 @@
 [![Release](https://github.com/juliensimon/cache-commander/actions/workflows/release.yml/badge.svg)](https://github.com/juliensimon/cache-commander/releases)
 [![GitHub release](https://img.shields.io/github/v/release/juliensimon/cache-commander)](https://github.com/juliensimon/cache-commander/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![macOS](https://img.shields.io/badge/macOS-x86__64%20%7C%20ARM-black?logo=apple)](https://github.com/juliensimon/cache-commander/releases)
 [![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20ARM-black?logo=linux&logoColor=white)](https://github.com/juliensimon/cache-commander/releases)
+[![crates.io](https://img.shields.io/crates/v/ccmd)](https://crates.io/crates/ccmd)
 [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brown?logo=homebrew)](https://github.com/juliensimon/homebrew-tap)
 
 A terminal UI (TUI) for exploring, auditing, and cleaning developer cache directories on macOS and Linux. Scan cached packages for known CVEs, find outdated dependencies, and reclaim disk space — all from one tool.
