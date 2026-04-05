@@ -11,28 +11,28 @@
 class Ccmd < Formula
   desc "Cache Commander — a TUI for browsing and managing cache directories"
   homepage "https://github.com/juliensimon/cache-commander"
-  version "0.1.0"
+  version "0.1.1"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/juliensimon/cache-commander/releases/download/v#{version}/ccmd-aarch64-apple-darwin.tar.gz"
-      sha256 "e506702faf3e910113e4332dc479457ff97d3dd029b06b8542b94783408be6cc"
+      sha256 "7e037561082513300f118065d4de6e8b52e242c9b7fde7f36853e689a70a6d3e"
     end
     on_intel do
       url "https://github.com/juliensimon/cache-commander/releases/download/v#{version}/ccmd-x86_64-apple-darwin.tar.gz"
-      sha256 "2b6a3e8d6a660c94b5c4c41351eed440af1745a7b6ce0218f8ef8d972929bb5d"
+      sha256 "2397b29823ee11813d4a592cd37e89c349e051b4492a4d3161ff03202e3493b6"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/juliensimon/cache-commander/releases/download/v#{version}/ccmd-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "3800b9587315c81dd81c629f74a31db89795842c2c2cc2a8e06a2754eb88b6bc"
+      sha256 "95732d49e608d7655c6eb8dca158a6eaddc4d8ea13d8c9387d7c9c02be6e7534"
     end
     on_intel do
       url "https://github.com/juliensimon/cache-commander/releases/download/v#{version}/ccmd-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "1b2f434c15f35a12443dccba8cf12f7550788dc72474a60af297268d5939e621"
+      sha256 "e7a93a6293973ff280bcb18fe1ca5ffe61e7a32a051c5150830383d7d703674e"
     end
   end
 
