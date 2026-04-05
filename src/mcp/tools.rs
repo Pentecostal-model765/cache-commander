@@ -45,6 +45,15 @@ pub struct MetadataEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct VulnScanReport {
+    pub vulnerable_packages: usize,
+    pub total_vulnerabilities: usize,
+    pub fixable: usize,
+    pub unfixable: usize,
+    pub packages: Vec<VulnResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct VulnResult {
     pub name: String,
     pub version: String,

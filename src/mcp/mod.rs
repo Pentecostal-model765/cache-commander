@@ -353,7 +353,20 @@ impl CcmdMcp {
         if result.is_empty() {
             Ok("No vulnerabilities found.".to_string())
         } else {
-            serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
+            let total_vulns: usize = result.iter().map(|r| r.vulnerabilities.len()).sum();
+            let fixable: usize = result
+                .iter()
+                .flat_map(|r| &r.vulnerabilities)
+                .filter(|v| v.fix_version.is_some())
+                .count();
+            let report = VulnScanReport {
+                vulnerable_packages: result.len(),
+                total_vulnerabilities: total_vulns,
+                fixable,
+                unfixable: total_vulns - fixable,
+                packages: result,
+            };
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialization failed: {e}"))
         }
     }
 
