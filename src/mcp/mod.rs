@@ -29,6 +29,18 @@ pub struct CcmdMcp {
     tool_router: ToolRouter<Self>,
 }
 
+/// Check if a path is inside any of the configured cache roots (resolving symlinks).
+fn is_under_roots(path: &std::path::Path, roots: &[PathBuf]) -> bool {
+    let Ok(canonical) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    roots.iter().any(|root| {
+        std::fs::canonicalize(root)
+            .map(|cr| canonical.starts_with(cr))
+            .unwrap_or(false)
+    })
+}
+
 impl CcmdMcp {
     fn new(config: &Config) -> Self {
         let tool_router = Self::tool_router();
@@ -171,7 +183,7 @@ impl CcmdMcp {
                     let name_match = node.name.to_lowercase().contains(&query);
                     let eco_match = ecosystem
                         .as_ref()
-                        .map_or(true, |eco| node.kind.label().eq_ignore_ascii_case(eco));
+                        .is_none_or(|eco| node.kind.label().eq_ignore_ascii_case(eco));
                     name_match && eco_match
                 })
                 .map(|node| {
@@ -211,6 +223,9 @@ impl CcmdMcp {
         let path = PathBuf::from(&input.path);
         if !path.exists() {
             return Ok(format!("Path not found: {}", input.path));
+        }
+        if !is_under_roots(&path, &self.roots) {
+            return Ok("Path is not inside any configured cache root.".to_string());
         }
 
         let result = tokio::task::spawn_blocking(move || {
@@ -393,6 +408,7 @@ impl CcmdMcp {
         input: Parameters<tools::PreviewDeleteInput>,
     ) -> Result<String, String> {
         let paths: Vec<PathBuf> = input.0.paths.iter().map(PathBuf::from).collect();
+        let roots = self.roots.clone();
 
         let result = tokio::task::spawn_blocking(move || {
             let mut total_deletable: u64 = 0;
@@ -412,6 +428,23 @@ impl CcmdMcp {
                             safety_level: "unknown".to_string(),
                             would_delete: false,
                             reason: Some("Path not found".to_string()),
+                        };
+                    }
+                    if !is_under_roots(path, &roots) {
+                        return PreviewItem {
+                            path: path.to_string_lossy().to_string(),
+                            name: path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            size: "0 B".to_string(),
+                            size_bytes: 0,
+                            safety_level: "unknown".to_string(),
+                            would_delete: false,
+                            reason: Some(
+                                "Path is not inside any configured cache root".to_string(),
+                            ),
                         };
                     }
                     let kind = providers::detect(path);
@@ -487,8 +520,7 @@ impl CcmdMcp {
                     });
                     continue;
                 }
-                let under_root = roots.iter().any(|root| path.starts_with(root));
-                if !under_root {
+                if !is_under_roots(path, &roots) {
                     skipped.push(SkippedItem {
                         path: path.to_string_lossy().to_string(),
                         name: path
