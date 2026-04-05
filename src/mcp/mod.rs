@@ -1,3 +1,4 @@
+pub mod safety;
 pub mod tools;
 
 use crate::config::Config;
