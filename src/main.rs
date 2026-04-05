@@ -1,5 +1,7 @@
 mod app;
 mod config;
+#[cfg(feature = "mcp")]
+mod mcp;
 mod providers;
 mod scanner;
 mod security;
@@ -19,7 +21,13 @@ use std::panic;
 use std::sync::mpsc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::load();
+    let (config, _cli) = Config::load();
+
+    // Check for MCP subcommand
+    #[cfg(feature = "mcp")]
+    if let Some(config::Command::Mcp) = _cli.command {
+        return crate::mcp::run(config);
+    }
 
     // Set up panic hook to restore terminal
     let original_hook = panic::take_hook();
