@@ -6,13 +6,22 @@ description = "Cache Commander — a TUI for browsing and managing cache directo
 license = "MIT"
 repository = "https://github.com/juliensimon/cache-commander"
 homepage = "https://github.com/juliensimon/cache-commander"
-keywords = ["cache", "tui", "disk-space", "cleanup"]
+keywords = ["cache", "tui", "disk-space", "cleanup", "security"]
 categories = ["command-line-utilities"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
 pkg-fmt = "tgz"
 bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.deb]
+maintainer = "Julien Simon <julien@julien.org>"
+section = "utils"
+priority = "optional"
+extended-description = "Scan cached packages for known CVEs, find outdated dependencies, and reclaim disk space — all from one TUI. Supports HuggingFace, pip, uv, npm, Cargo, Homebrew, and more.\n\nHomepage: https://github.com/juliensimon/cache-commander"
+assets = [
+    ["doc/ccmd.1", "usr/share/man/man1/ccmd.1", "644"],
+]
 
 [dependencies]
 ratatui = "0.29"

@@ -1,0 +1,192 @@
+.TH CCMD 1 "April 2026" "ccmd 0.1.1" "User Commands"
+.SH NAME
+ccmd \- browse and manage cache directories
+.SH SYNOPSIS
+.B ccmd
+.RB [ \-r
+.IR path ]
+.RB [ \-s
+.IR field ]
+.RB [ \-\-no\-confirm ]
+.RB [ \-\-vulncheck ]
+.RB [ \-\-versioncheck ]
+.SH DESCRIPTION
+.B ccmd
+(Cache Commander) is a terminal user interface for exploring, analyzing, and
+cleaning up cache directories.
+It scans common cache locations, displays a navigable tree of cached data
+sorted by size, and lets you selectively delete entries to reclaim disk space.
+.PP
+Security features include vulnerability scanning via OSV.dev and version
+checking against upstream package registries.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-root =\fIpath\fR
+Cache root directory to scan. Can be specified multiple times.
+Overrides roots from the configuration file.
+If omitted, default roots are used (see
+.B CONFIGURATION
+below).
+.TP
+.BR \-s ", " \-\-sort =\fIfield\fR
+Initial sort field:
+.BR size " (default),"
+.BR name ", or"
+.BR modified .
+.TP
+.B \-\-no\-confirm
+Skip the confirmation prompt when deleting entries.
+.TP
+.B \-\-vulncheck
+Enable vulnerability scanning.
+Queries OSV.dev for known vulnerabilities in cached packages.
+.TP
+.B \-\-versioncheck
+Enable version checking.
+Queries package registries to identify outdated cached packages.
+.SH KEYBINDINGS
+.SS Navigation
+.TP
+.BR j / Down
+Move cursor down.
+.TP
+.BR k / Up
+Move cursor up.
+.TP
+.BR l / Right
+Expand node.
+.TP
+.BR h / Left
+Collapse node.
+.TP
+.B Enter
+Toggle expand/collapse.
+.TP
+.B g
+Jump to top.
+.TP
+.B G
+Jump to bottom.
+.TP
+.B /
+Filter by name (hides non-matching entries).
+.SS Selection
+.TP
+.B Space
+Toggle mark on current entry.
+.TP
+.B Shift+Space
+Unmark all entries.
+.TP
+.B u
+Unmark all entries.
+.SS Security
+.TP
+.B v
+Scan selected entry for vulnerabilities (via OSV.dev).
+.TP
+.B V
+Scan all entries for vulnerabilities.
+.TP
+.B o
+Check selected entry for outdated versions.
+.TP
+.B O
+Check all entries for outdated versions.
+.TP
+.B f
+Cycle status filter (none \(-> vuln \(-> outdated \(-> vuln+outdated).
+.TP
+.B c
+Copy upgrade command to clipboard.
+.SS Actions
+.TP
+.BR d / D
+Delete marked entries. Does nothing if no entries are marked.
+.TP
+.B m
+Mark all visible (non-dimmed) items for deletion.
+.TP
+.B s
+Cycle sort field (size \(-> name \(-> modified).
+.TP
+.B r
+Refresh selected entry.
+.TP
+.B R
+Full rescan of all roots.
+.TP
+.B ?
+Show in-app help screen.
+.TP
+.BR q " / " Ctrl+C
+Quit.
+.SH CONFIGURATION
+.B ccmd
+reads its configuration from:
+.PP
+.RS
+.I ~/.config/ccmd/config.toml
+.RE
+.PP
+Example configuration:
+.PP
+.RS
+.nf
+roots = ["~/.cache", "~/Library/Caches"]
+sort_by = "size"
+sort_desc = true
+confirm_delete = true
+
+[vulncheck]
+enabled = false
+
+[versioncheck]
+enabled = false
+.fi
+.RE
+.PP
+CLI options override the corresponding configuration values.
+.SH SUPPORTED CACHES
+.B ccmd
+recognizes and provides rich metadata for the following cache ecosystems:
+.PP
+.TS
+l l.
+Provider	Typical location
+_
+Cargo	~/.cargo/registry
+Chroma	~/.cache/chroma
+GitHub CLI	~/.cache/gh
+Homebrew	~/Library/Caches/Homebrew
+HuggingFace Hub	~/.cache/huggingface
+npm	~/.npm
+pip	~/.cache/pip
+pre-commit	~/.cache/pre-commit
+Prisma	~/.cache/prisma
+PyTorch	~/.cache/torch
+uv	~/.cache/uv
+Whisper	~/.cache/whisper
+.TE
+.PP
+Unrecognized directories are displayed with generic metadata.
+Entries for known providers include a safety indicator:
+\fB\[u25CF]\fR (safe to delete),
+\fB\[u25D0]\fR (caution), or
+\fB\[u25CB]\fR (unsafe).
+.SH EXIT STATUS
+.TP
+.B 0
+Normal exit.
+.TP
+.B 1
+An error occurred.
+.SH BUGS
+Report bugs at
+.UR https://github.com/juliensimon/cache-commander/issues
+.UE .
+.SH AUTHOR
+Julien Simon <julien@julien.org>
+.SH SEE ALSO
+.BR du (1),
+.BR ncdu (1)

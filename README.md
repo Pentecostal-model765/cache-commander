@@ -136,6 +136,7 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 | Key | Action |
 |-----|--------|
 | `Space` | Mark / unmark item |
+| `Shift+Space` | Unmark all |
 | `m` | Mark all visible items (with confirmation) |
 | `u` | Unmark all |
 | `d` / `D` | Delete marked items |
