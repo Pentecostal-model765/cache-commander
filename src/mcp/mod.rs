@@ -67,11 +67,25 @@ impl CcmdMcp {
         nodes
     }
 
+    fn provider_label(node: &TreeNode) -> String {
+        let label = node.kind.label();
+        if !label.is_empty() {
+            return label.to_string();
+        }
+        // Unknown provider — use parent directory to give context
+        if let Some(parent) = node.path.parent() {
+            if parent.ends_with("Library/Caches") {
+                return "~/Library/Caches".to_string();
+            }
+        }
+        "Other".to_string()
+    }
+
     fn build_list_caches(&self) -> Vec<CacheRoot> {
         let nodes = self.walk_roots();
         let mut by_provider: HashMap<String, (u64, usize, PathBuf)> = HashMap::new();
         for node in &nodes {
-            let label = node.kind.label().to_string();
+            let label = Self::provider_label(node);
             let entry = by_provider.entry(label).or_insert((
                 0,
                 0,
@@ -104,7 +118,7 @@ impl CcmdMcp {
 
         for node in &nodes {
             total_size += node.size;
-            let label = node.kind.label().to_string();
+            let label = Self::provider_label(node);
             let entry = by_provider.entry(label).or_insert((0, 0));
             entry.0 += node.size;
             entry.1 += 1;
