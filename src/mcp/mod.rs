@@ -178,7 +178,7 @@ impl CcmdMcp {
     }
 
     #[tool(
-        description = "Search for packages by name across all caches. Returns matching packages with name, version, size, and safety level."
+        description = "Search for packages across all caches. Omit query to list all packages. Use ecosystem filter to scope results (e.g. huggingface, pip, npm)."
     )]
     async fn search_packages(
         &self,
@@ -186,7 +186,10 @@ impl CcmdMcp {
     ) -> Result<String, String> {
         let server = self.clone();
         let input = input.0;
-        let query = input.query.to_lowercase();
+        let query = input
+            .query
+            .filter(|q| !q.is_empty())
+            .map(|q| q.to_lowercase());
         let ecosystem = input.ecosystem;
 
         let result = tokio::task::spawn_blocking(move || {
@@ -194,7 +197,9 @@ impl CcmdMcp {
             let matches: Vec<PackageEntry> = nodes
                 .into_iter()
                 .filter(|node| {
-                    let name_match = node.name.to_lowercase().contains(&query);
+                    let name_match = query
+                        .as_ref()
+                        .is_none_or(|q| node.name.to_lowercase().contains(q));
                     let eco_match = ecosystem
                         .as_ref()
                         .is_none_or(|eco| node.kind.label().eq_ignore_ascii_case(eco));

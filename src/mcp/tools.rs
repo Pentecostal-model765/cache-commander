@@ -168,8 +168,9 @@ pub struct PreviewResult {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchInput {
-    /// Package name to search for (case-insensitive substring match)
-    pub query: String,
+    /// Package name to search for (case-insensitive substring match). Omit or leave empty to list all packages.
+    #[serde(default)]
+    pub query: Option<String>,
     /// Optional ecosystem filter: npm, pip, cargo, uv, huggingface, homebrew, etc.
     pub ecosystem: Option<String>,
 }
