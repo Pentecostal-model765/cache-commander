@@ -208,7 +208,7 @@ impl CcmdMcp {
     }
 
     #[tool(
-        description = "Search for packages across all caches. Omit query to list all packages. Use ecosystem filter to scope results (e.g. huggingface, pip, npm)."
+        description = "Search for packages across all caches. Omit query to list all. Use ecosystem filter to scope by provider (e.g. huggingface, pip, npm). Query matches package names — for HuggingFace use '[model]' or '[dataset]' to filter by type."
     )]
     async fn search_packages(
         &self,
