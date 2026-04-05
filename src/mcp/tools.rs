@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // --- Shared response types ---
 
@@ -10,6 +11,12 @@ pub struct CacheRoot {
     pub total_size: String,
     pub total_size_bytes: u64,
     pub item_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchReport {
+    pub total_results: usize,
+    pub packages: Vec<PackageEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,6 +79,13 @@ pub struct VulnEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct OutdatedReport {
+    pub outdated_packages: usize,
+    pub by_ecosystem: HashMap<String, usize>,
+    pub packages: Vec<OutdatedResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct OutdatedResult {
     pub name: String,
     pub version: String,
@@ -107,10 +121,12 @@ pub struct SafetyCounts {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteResult {
-    pub deleted: Vec<DeletedItem>,
-    pub skipped: Vec<SkippedItem>,
+    pub deleted_count: usize,
+    pub skipped_count: usize,
     pub space_freed: String,
     pub space_freed_bytes: u64,
+    pub deleted: Vec<DeletedItem>,
+    pub skipped: Vec<SkippedItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -140,9 +156,12 @@ pub struct PreviewItem {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PreviewResult {
-    pub items: Vec<PreviewItem>,
+    pub deletable_count: usize,
+    pub needs_confirmation_count: usize,
+    pub rejected_count: usize,
     pub total_deletable_size: String,
     pub total_deletable_size_bytes: u64,
+    pub items: Vec<PreviewItem>,
 }
 
 // --- Tool input types (need JsonSchema for MCP discovery) ---

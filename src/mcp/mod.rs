@@ -224,7 +224,11 @@ impl CcmdMcp {
         if result.is_empty() {
             Ok("No packages found matching query.".to_string())
         } else {
-            serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
+            let report = SearchReport {
+                total_results: result.len(),
+                packages: result,
+            };
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialization failed: {e}"))
         }
     }
 
@@ -423,7 +427,16 @@ impl CcmdMcp {
         if result.is_empty() {
             Ok("All packages are up to date.".to_string())
         } else {
-            serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
+            let mut by_ecosystem: HashMap<String, usize> = HashMap::new();
+            for pkg in &result {
+                *by_ecosystem.entry(pkg.ecosystem.clone()).or_default() += 1;
+            }
+            let report = OutdatedReport {
+                outdated_packages: result.len(),
+                by_ecosystem,
+                packages: result,
+            };
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialization failed: {e}"))
         }
     }
 
@@ -439,10 +452,14 @@ impl CcmdMcp {
 
         let result = tokio::task::spawn_blocking(move || {
             let mut total_deletable: u64 = 0;
+            let mut deletable_count = 0usize;
+            let mut needs_confirmation_count = 0usize;
+            let mut rejected_count = 0usize;
             let items: Vec<PreviewItem> = paths
                 .iter()
                 .map(|path| {
                     if !path.exists() {
+                        rejected_count += 1;
                         return PreviewItem {
                             path: path.to_string_lossy().to_string(),
                             name: path
@@ -458,6 +475,7 @@ impl CcmdMcp {
                         };
                     }
                     if !is_under_roots(path, &roots) {
+                        rejected_count += 1;
                         return PreviewItem {
                             path: path.to_string_lossy().to_string(),
                             name: path
@@ -487,12 +505,17 @@ impl CcmdMcp {
                     let (would_delete, reason) = match decision {
                         safety::DeleteDecision::Allow => {
                             total_deletable += size;
+                            deletable_count += 1;
                             (true, None)
                         }
                         safety::DeleteDecision::NeedsConfirmation { reason } => {
+                            needs_confirmation_count += 1;
                             (false, Some(reason))
                         }
-                        safety::DeleteDecision::Reject { reason } => (false, Some(reason)),
+                        safety::DeleteDecision::Reject { reason } => {
+                            rejected_count += 1;
+                            (false, Some(reason))
+                        }
                     };
                     PreviewItem {
                         path: path.to_string_lossy().to_string(),
@@ -506,9 +529,12 @@ impl CcmdMcp {
                 })
                 .collect();
             PreviewResult {
-                items,
+                deletable_count,
+                needs_confirmation_count,
+                rejected_count,
                 total_deletable_size: format_size(total_deletable, BINARY),
                 total_deletable_size_bytes: total_deletable,
+                items,
             }
         })
         .await
@@ -607,10 +633,12 @@ impl CcmdMcp {
                 }
             }
             DeleteResult {
-                deleted,
-                skipped,
+                deleted_count: deleted.len(),
+                skipped_count: skipped.len(),
                 space_freed: format_size(space_freed, BINARY),
                 space_freed_bytes: space_freed,
+                deleted,
+                skipped,
             }
         })
         .await
