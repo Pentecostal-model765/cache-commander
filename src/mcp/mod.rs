@@ -62,27 +62,35 @@ impl CcmdMcp {
         nodes
     }
 
-    /// Collect package nodes from a path. If it's a known provider container
-    /// (detected kind but no semantic name), recurse into children to find
-    /// actual packages. Once a node has a semantic name, it's a package — stop.
+    /// Collect package nodes from a path. Recurses into provider containers
+    /// to find individual packages. A node is a "package" (leaf) if it has
+    /// a package_id or a semantic name starting with '[' (typed item like
+    /// [model], [npx], [dataset]). Otherwise, if it's a known provider dir,
+    /// it's a container — recurse into children.
     fn collect_nodes(path: &PathBuf, depth: u16, nodes: &mut Vec<TreeNode>) {
         if depth > 4 {
             return;
         }
         let kind = providers::detect(path);
         let semantic_name = providers::semantic_name(kind, path);
+        let has_package_id = providers::package_id(kind, path).is_some();
 
-        // Has a semantic name → it's a package (model, dataset, crate, etc.). Collect it.
-        if semantic_name.is_some() {
+        // It's a real package if it has a package_id or a typed semantic name
+        let is_package =
+            has_package_id || semantic_name.as_ref().is_some_and(|n| n.starts_with('['));
+
+        if is_package {
             let mut node = TreeNode::new(path.clone(), depth, None);
             node.kind = kind;
             node.size = walker::dir_size(path);
-            node.name = semantic_name.unwrap();
+            if let Some(name) = semantic_name {
+                node.name = name;
+            }
             nodes.push(node);
             return;
         }
 
-        // Known provider but no semantic name → container dir, recurse.
+        // Known provider but not a package → container dir, recurse.
         if kind != CacheKind::Unknown && path.is_dir() {
             for child in walker::list_children(path) {
                 Self::collect_nodes(&child, depth + 1, nodes);
