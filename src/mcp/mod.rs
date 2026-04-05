@@ -30,27 +30,56 @@ pub struct CcmdMcp {
 }
 
 /// Check if a provider label matches a user-supplied ecosystem filter.
-/// Handles aliases (e.g. "npx" matches "npm") and fuzzy matching.
+/// Normalize a label or filter to a canonical ecosystem tag.
+/// Handles both CacheKind::label() values (e.g. "HuggingFace Hub", "Cargo")
+/// and PackageId.ecosystem values (e.g. "PyPI", "crates.io", "npm").
+fn canonical_ecosystem(s: &str) -> Option<&'static str> {
+    match s.to_lowercase().as_str() {
+        "npm" | "npx" | "node" | "nodejs" => Some("npm"),
+        "pip" | "pypi" | "python" => Some("pip"),
+        "uv" => Some("uv"),
+        "cargo" | "crates" | "crates.io" | "rust" => Some("cargo"),
+        "homebrew" | "brew" => Some("homebrew"),
+        s if s.contains("huggingface") => Some("huggingface"),
+        "hf" => Some("huggingface"),
+        "pre-commit" | "precommit" => Some("pre-commit"),
+        "whisper" => Some("whisper"),
+        "torch" | "pytorch" => Some("torch"),
+        "chroma" => Some("chroma"),
+        "prisma" => Some("prisma"),
+        s if s.contains("github") => Some("gh"),
+        "gh" => Some("gh"),
+        _ => None,
+    }
+}
+
+/// Check if a provider label matches a user-supplied ecosystem filter.
+/// Works with both CacheKind::label() and PackageId.ecosystem vocabularies.
 fn matches_ecosystem(label: &str, filter: &str) -> bool {
     if label.is_empty() || filter.is_empty() {
         return false;
     }
+    // Try canonical match first (handles both vocabularies)
+    if let (Some(cl), Some(cf)) = (canonical_ecosystem(label), canonical_ecosystem(filter)) {
+        // pip and uv are both Python — match either when user says "python" or "pypi"
+        let python_group = |c: &str| c == "pip" || c == "uv";
+        if cl == cf {
+            return true;
+        }
+        if python_group(cl) && python_group(cf) {
+            return canonical_ecosystem(filter) == Some("pip")
+                || canonical_ecosystem(filter) == Some("uv");
+        }
+        // "python"/"pypi" should match both pip and uv
+        if cf == "pip" && python_group(cl) {
+            return true;
+        }
+        return false;
+    }
+    // Fallback: substring match for unknown ecosystems
     let label = label.to_lowercase();
     let filter = filter.to_lowercase();
-    // Exact or substring match
-    if label.contains(&filter) || filter.contains(&label) {
-        return true;
-    }
-    // Known aliases
-    match filter.as_str() {
-        "npx" => label.contains("npm"),
-        "node" | "nodejs" => label.contains("npm"),
-        "python" | "pypi" => label.contains("pip") || label.contains("uv"),
-        "rust" | "crates" => label.contains("cargo"),
-        "brew" => label.contains("homebrew"),
-        "hf" => label.contains("huggingface"),
-        _ => false,
-    }
+    label.contains(&filter)
 }
 
 /// Check if a path is inside any of the configured cache roots (resolving symlinks).
@@ -300,9 +329,7 @@ impl CcmdMcp {
         .await
         .map_err(|e| format!("spawn_blocking failed: {e}"))?;
 
-        if result.is_empty() {
-            Ok("No packages found matching query.".to_string())
-        } else {
+        {
             let report = SearchReport {
                 total_results: result.len(),
                 packages: result,
@@ -467,9 +494,7 @@ impl CcmdMcp {
         .await
         .map_err(|e| format!("spawn_blocking failed: {e}"))?;
 
-        if result.is_empty() {
-            Ok("No vulnerabilities found.".to_string())
-        } else {
+        {
             let total_vulns: usize = result.iter().map(|r| r.vulnerabilities.len()).sum();
             let fixable: usize = result
                 .iter()
@@ -537,9 +562,7 @@ impl CcmdMcp {
         .await
         .map_err(|e| format!("spawn_blocking failed: {e}"))?;
 
-        if result.is_empty() {
-            Ok("All packages are up to date.".to_string())
-        } else {
+        {
             let mut by_ecosystem: HashMap<String, usize> = HashMap::new();
             for pkg in &result {
                 *by_ecosystem.entry(pkg.ecosystem.clone()).or_default() += 1;
@@ -1081,6 +1104,62 @@ mod tests {
         );
     }
 
+    // --- matches_ecosystem ---
+
+    #[test]
+    fn ecosystem_exact_match() {
+        assert!(matches_ecosystem("npm", "npm"));
+        assert!(matches_ecosystem("pip", "pip"));
+        assert!(matches_ecosystem("Cargo", "cargo"));
+    }
+
+    #[test]
+    fn ecosystem_case_insensitive() {
+        assert!(matches_ecosystem("HuggingFace Hub", "huggingface"));
+        assert!(matches_ecosystem("npm", "NPM"));
+    }
+
+    #[test]
+    fn ecosystem_aliases_for_labels() {
+        // CacheKind::label() vocabulary
+        assert!(matches_ecosystem("npm", "npx"));
+        assert!(matches_ecosystem("npm", "node"));
+        assert!(matches_ecosystem("npm", "nodejs"));
+        assert!(matches_ecosystem("pip", "python"));
+        assert!(matches_ecosystem("pip", "pypi"));
+        assert!(matches_ecosystem("uv", "python"));
+        assert!(matches_ecosystem("uv", "pypi"));
+        assert!(matches_ecosystem("Cargo", "rust"));
+        assert!(matches_ecosystem("Cargo", "crates"));
+        assert!(matches_ecosystem("Homebrew", "brew"));
+        assert!(matches_ecosystem("HuggingFace Hub", "hf"));
+    }
+
+    #[test]
+    fn ecosystem_aliases_for_package_id() {
+        // PackageId.ecosystem vocabulary (the I-1 bug)
+        assert!(matches_ecosystem("crates.io", "cargo"));
+        assert!(matches_ecosystem("crates.io", "rust"));
+        assert!(matches_ecosystem("crates.io", "crates"));
+        assert!(matches_ecosystem("PyPI", "pip"));
+        assert!(matches_ecosystem("PyPI", "python"));
+        assert!(matches_ecosystem("npm", "npx"));
+    }
+
+    #[test]
+    fn ecosystem_empty_never_matches() {
+        assert!(!matches_ecosystem("", "npm"));
+        assert!(!matches_ecosystem("npm", ""));
+        assert!(!matches_ecosystem("", ""));
+    }
+
+    #[test]
+    fn ecosystem_unrelated_no_match() {
+        assert!(!matches_ecosystem("npm", "pip"));
+        assert!(!matches_ecosystem("Cargo", "npm"));
+        assert!(!matches_ecosystem("HuggingFace Hub", "cargo"));
+    }
+
     #[test]
     fn delete_result_serializes_with_counts_at_top() {
         let result = DeleteResult {
@@ -1107,7 +1186,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 tracing_subscriber::EnvFilter::from_default_env()
                     .add_directive("ccmd=info".parse().unwrap()),
             )
-            .init();
+            .try_init()
+            .ok();
 
         let server = CcmdMcp::new(&config);
         let transport = rmcp::transport::io::stdio();
