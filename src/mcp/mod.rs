@@ -384,6 +384,181 @@ impl CcmdMcp {
             serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
         }
     }
+
+    #[tool(
+        description = "Preview what would happen if cache entries were deleted. Shows size, safety level, and whether each item would be deleted. No side effects."
+    )]
+    async fn preview_delete(
+        &self,
+        input: Parameters<tools::PreviewDeleteInput>,
+    ) -> Result<String, String> {
+        let paths: Vec<PathBuf> = input.0.paths.iter().map(PathBuf::from).collect();
+
+        let result = tokio::task::spawn_blocking(move || {
+            let mut total_deletable: u64 = 0;
+            let items: Vec<PreviewItem> = paths
+                .iter()
+                .map(|path| {
+                    if !path.exists() {
+                        return PreviewItem {
+                            path: path.to_string_lossy().to_string(),
+                            name: path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            size: "0 B".to_string(),
+                            size_bytes: 0,
+                            safety_level: "unknown".to_string(),
+                            would_delete: false,
+                            reason: Some("Path not found".to_string()),
+                        };
+                    }
+                    let kind = providers::detect(path);
+                    let safety = providers::safety(kind, path);
+                    let size = walker::dir_size(path);
+                    let name = providers::semantic_name(kind, path).unwrap_or_else(|| {
+                        path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string()
+                    });
+                    let decision = safety::evaluate_delete(&safety, false);
+                    let (would_delete, reason) = match decision {
+                        safety::DeleteDecision::Allow => {
+                            total_deletable += size;
+                            (true, None)
+                        }
+                        safety::DeleteDecision::NeedsConfirmation { reason } => {
+                            (false, Some(reason))
+                        }
+                        safety::DeleteDecision::Reject { reason } => (false, Some(reason)),
+                    };
+                    PreviewItem {
+                        path: path.to_string_lossy().to_string(),
+                        name,
+                        size: format_size(size, BINARY),
+                        size_bytes: size,
+                        safety_level: safety.label().to_string(),
+                        would_delete,
+                        reason,
+                    }
+                })
+                .collect();
+            PreviewResult {
+                items,
+                total_deletable_size: format_size(total_deletable, BINARY),
+                total_deletable_size_bytes: total_deletable,
+            }
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+
+        serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
+    }
+
+    #[tool(
+        description = "Delete cache entries. Safe items are deleted directly. Caution items require confirm_caution=true. Unsafe items are always rejected (use the TUI instead)."
+    )]
+    async fn delete_packages(
+        &self,
+        input: Parameters<tools::DeleteInput>,
+    ) -> Result<String, String> {
+        let input = input.0;
+        let paths: Vec<PathBuf> = input.paths.iter().map(PathBuf::from).collect();
+        let confirm_caution = input.confirm_caution;
+        let roots = self.roots.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            let mut deleted = Vec::new();
+            let mut skipped = Vec::new();
+            let mut space_freed: u64 = 0;
+
+            for path in &paths {
+                if !path.exists() {
+                    skipped.push(SkippedItem {
+                        path: path.to_string_lossy().to_string(),
+                        name: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        reason: "Path not found".to_string(),
+                    });
+                    continue;
+                }
+                let under_root = roots.iter().any(|root| path.starts_with(root));
+                if !under_root {
+                    skipped.push(SkippedItem {
+                        path: path.to_string_lossy().to_string(),
+                        name: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        reason: "Path is not inside any configured cache root".to_string(),
+                    });
+                    continue;
+                }
+                let kind = providers::detect(path);
+                let safety = providers::safety(kind, path);
+                let name = providers::semantic_name(kind, path).unwrap_or_else(|| {
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string()
+                });
+                match safety::evaluate_delete(&safety, confirm_caution) {
+                    safety::DeleteDecision::Allow => {
+                        let size = walker::dir_size(path);
+                        let ok = if path.is_dir() {
+                            std::fs::remove_dir_all(path).is_ok()
+                        } else {
+                            std::fs::remove_file(path).is_ok()
+                        };
+                        if ok {
+                            space_freed += size;
+                            deleted.push(DeletedItem {
+                                path: path.to_string_lossy().to_string(),
+                                name,
+                                size: format_size(size, BINARY),
+                            });
+                        } else {
+                            skipped.push(SkippedItem {
+                                path: path.to_string_lossy().to_string(),
+                                name,
+                                reason: "Permission denied or file in use".to_string(),
+                            });
+                        }
+                    }
+                    safety::DeleteDecision::NeedsConfirmation { reason } => {
+                        skipped.push(SkippedItem {
+                            path: path.to_string_lossy().to_string(),
+                            name,
+                            reason,
+                        });
+                    }
+                    safety::DeleteDecision::Reject { reason } => {
+                        skipped.push(SkippedItem {
+                            path: path.to_string_lossy().to_string(),
+                            name,
+                            reason,
+                        });
+                    }
+                }
+            }
+            DeleteResult {
+                deleted,
+                skipped,
+                space_freed: format_size(space_freed, BINARY),
+                space_freed_bytes: space_freed,
+            }
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+
+        serde_json::to_string_pretty(&result).map_err(|e| format!("serialization failed: {e}"))
+    }
 }
 
 #[tool_handler]
