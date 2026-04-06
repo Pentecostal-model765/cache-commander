@@ -29,6 +29,17 @@ pub struct Cli {
     /// Enable version checking
     #[arg(long)]
     pub versioncheck: bool,
+
+    #[cfg(feature = "mcp")]
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[cfg(feature = "mcp")]
+#[derive(clap::Subcommand, Debug)]
+pub enum Command {
+    /// Start MCP server (stdio transport)
+    Mcp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -119,16 +130,16 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn load() -> Self {
+    pub fn load() -> (Self, Cli) {
         let cli = Cli::parse();
         let mut config = Self::load_from_file().unwrap_or_default();
 
         // CLI overrides
         if !cli.roots.is_empty() {
-            config.roots = cli.roots;
+            config.roots = cli.roots.clone();
         }
-        if let Some(sort) = cli.sort
-            && let Some(field) = SortField::from_str_opt(&sort)
+        if let Some(ref sort) = cli.sort
+            && let Some(field) = SortField::from_str_opt(sort)
         {
             config.sort_by = field;
         }
@@ -150,7 +161,7 @@ impl Config {
             .filter(|p| p.exists())
             .collect();
 
-        config
+        (config, cli)
     }
 
     fn load_from_file() -> Option<Self> {
@@ -338,5 +349,19 @@ mod tests {
         let config = Config::default();
         assert!(!config.vulncheck.enabled);
         assert!(!config.versioncheck.enabled);
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn cli_no_subcommand_means_tui() {
+        let cli = Cli::try_parse_from(["ccmd"]).unwrap();
+        assert!(cli.command.is_none());
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn cli_mcp_subcommand_parses() {
+        let cli = Cli::try_parse_from(["ccmd", "mcp"]).unwrap();
+        assert!(cli.command.is_some());
     }
 }
