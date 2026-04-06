@@ -118,7 +118,9 @@ fn fetch_fix_versions(vuln_ids: &[String]) -> HashMap<String, osv::OsvVulnDetail
                 let cache = Arc::clone(&cache);
                 std::thread::spawn(move || {
                     if let Ok(detail) = osv::fetch_vuln_detail(&id) {
-                        cache.lock().unwrap().insert(id, detail);
+                        if let Ok(mut map) = cache.lock() {
+                            map.insert(id, detail);
+                        }
                     }
                 })
             })
@@ -128,7 +130,10 @@ fn fetch_fix_versions(vuln_ids: &[String]) -> HashMap<String, osv::OsvVulnDetail
         }
     }
 
-    Arc::try_unwrap(cache).unwrap().into_inner().unwrap()
+    match Arc::try_unwrap(cache) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().map(|g| g.clone()).unwrap_or_default(),
+    }
 }
 
 pub fn check_versions(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, VersionInfo> {
@@ -148,14 +153,16 @@ pub fn check_versions(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Ver
                     if let Ok(Some(latest)) = registry::check_latest(&pkg) {
                         let is_outdated = osv::compare_versions(&pkg.version, &latest)
                             == std::cmp::Ordering::Less;
-                        results.lock().unwrap().insert(
-                            path,
-                            VersionInfo {
-                                current: pkg.version.clone(),
-                                latest,
-                                is_outdated,
-                            },
-                        );
+                        if let Ok(mut map) = results.lock() {
+                            map.insert(
+                                path,
+                                VersionInfo {
+                                    current: pkg.version.clone(),
+                                    latest,
+                                    is_outdated,
+                                },
+                            );
+                        }
                     }
                 })
             })
@@ -165,7 +172,10 @@ pub fn check_versions(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Ver
             let _ = handle.join();
         }
     }
-    Arc::try_unwrap(results).unwrap().into_inner().unwrap()
+    match Arc::try_unwrap(results) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().map(|g| g.clone()).unwrap_or_default(),
+    }
 }
 
 #[cfg(test)]

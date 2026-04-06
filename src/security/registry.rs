@@ -1,16 +1,25 @@
 pub fn parse_pypi_latest(json: &str) -> Option<String> {
     let val: serde_json::Value = serde_json::from_str(json).ok()?;
-    val["info"]["version"].as_str().map(|s| s.to_string())
+    val["info"]["version"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 pub fn parse_crates_io_latest(json: &str) -> Option<String> {
     let val: serde_json::Value = serde_json::from_str(json).ok()?;
-    val["crate"]["max_version"].as_str().map(|s| s.to_string())
+    val["crate"]["max_version"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 pub fn parse_npm_latest(json: &str) -> Option<String> {
     let val: serde_json::Value = serde_json::from_str(json).ok()?;
-    val["version"].as_str().map(|s| s.to_string())
+    val["version"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 pub fn check_latest(pkg: &crate::providers::PackageId) -> Result<Option<String>, String> {
@@ -24,7 +33,13 @@ pub fn check_latest(pkg: &crate::providers::PackageId) -> Result<Option<String>,
     let resp = ureq::agent()
         .get(&url)
         .timeout(std::time::Duration::from_secs(10))
-        .set("User-Agent", "ccmd/0.1 (https://github.com/ccmd)")
+        .set(
+            "User-Agent",
+            &format!(
+                "ccmd/{} (https://github.com/juliensimon/cache-commander)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        )
         .call()
         .map_err(|e| format!("Registry request failed: {e}"))?;
     let text = resp
@@ -84,6 +99,28 @@ mod tests {
 
     #[test]
     fn parse_npm_empty_version() {
-        assert_eq!(parse_npm_latest(r#"{"version": ""}"#), Some("".to_string()));
+        assert_eq!(parse_npm_latest(r#"{"version": ""}"#), None);
+    }
+
+    #[test]
+    fn parse_npm_whitespace_only_version() {
+        // Whitespace-only version is technically non-empty but would be useless;
+        // current impl returns Some(" ") which is acceptable — the version comparison
+        // will handle it by treating it as no numeric parts.
+        let result = parse_npm_latest(r#"{"version": " "}"#);
+        assert_eq!(result, Some(" ".to_string()));
+    }
+
+    #[test]
+    fn parse_pypi_empty_version() {
+        assert_eq!(parse_pypi_latest(r#"{"info": {"version": ""}}"#), None);
+    }
+
+    #[test]
+    fn parse_crates_io_empty_version() {
+        assert_eq!(
+            parse_crates_io_latest(r#"{"crate": {"max_version": ""}}"#),
+            None
+        );
     }
 }

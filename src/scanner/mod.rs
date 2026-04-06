@@ -167,6 +167,9 @@ fn run_brew_outdated()
         Ok(o) => o,
         Err(_) => return std::collections::HashMap::new(),
     };
+    if !output.status.success() {
+        return std::collections::HashMap::new();
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     crate::providers::homebrew::parse_brew_outdated(&stdout)
 }

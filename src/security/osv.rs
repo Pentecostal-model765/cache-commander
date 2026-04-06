@@ -54,7 +54,13 @@ pub fn query_osv(packages: &[crate::providers::PackageId]) -> Result<OsvResponse
         .post("https://api.osv.dev/v1/querybatch")
         .timeout(std::time::Duration::from_secs(30))
         .set("Content-Type", "application/json")
-        .set("User-Agent", "ccmd/0.1 (https://github.com/ccmd)")
+        .set(
+            "User-Agent",
+            &format!(
+                "ccmd/{} (https://github.com/juliensimon/cache-commander)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        )
         .send_string(&body)
         .map_err(|e| format!("OSV request failed: {e}"))?;
     let text = resp
@@ -192,7 +198,13 @@ pub fn fetch_vuln_detail(vuln_id: &str) -> Result<OsvVulnDetail, String> {
     let resp = ureq::agent()
         .get(&url)
         .timeout(std::time::Duration::from_secs(15))
-        .set("User-Agent", "ccmd/0.1 (https://github.com/ccmd)")
+        .set(
+            "User-Agent",
+            &format!(
+                "ccmd/{} (https://github.com/juliensimon/cache-commander)",
+                env!("CARGO_PKG_VERSION")
+            ),
+        )
         .call()
         .map_err(|e| format!("OSV detail request failed: {e}"))?;
     let text = resp

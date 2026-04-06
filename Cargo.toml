@@ -1,7 +1,8 @@
 [package]
 name = "ccmd"
-version = "0.1.1"
+version = "0.2.0-rc1"
 edition = "2024"
+rust-version = "1.85"
 description = "Cache Commander — a TUI for browsing and managing cache directories"
 license = "MIT"
 repository = "https://github.com/juliensimon/cache-commander"
