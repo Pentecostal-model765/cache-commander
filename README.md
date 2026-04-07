@@ -215,17 +215,10 @@ cargo install ccmd --features mcp
 cargo build --release --features mcp
 ```
 
-Configure in Claude Code (`.mcp.json`):
+Configure in Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "ccmd": {
-      "command": "ccmd",
-      "args": ["mcp"]
-    }
-  }
-}
+```bash
+claude mcp add ccmd -s user -- ccmd mcp
 ```
 
 Then ask Claude things like:

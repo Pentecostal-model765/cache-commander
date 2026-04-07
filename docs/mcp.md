@@ -26,7 +26,24 @@ The server communicates over stdio using the MCP protocol. It is not meant to be
 
 ## Configuring in Claude Code
 
-Add to `.mcp.json` in your project root (or `~/.claude/settings.json` for global access):
+### Global (recommended)
+
+Register ccmd as a user-scoped MCP server so it's available in every Claude Code session:
+
+```bash
+claude mcp add ccmd -s user -- ccmd mcp
+```
+
+Verify it's connected:
+
+```bash
+claude mcp list
+# ccmd: ccmd mcp - ✓ Connected
+```
+
+### Project-local
+
+To make ccmd available only in a specific project, add a `.mcp.json` in the project root:
 
 ```json
 {
