@@ -258,7 +258,7 @@ fn probe_yarn_paths() -> Vec<PathBuf> {
     let macos_fallbacks: [PathBuf; 0] = [];
 
     for path in fallbacks.iter().chain(macos_fallbacks.iter()) {
-        if path.exists() && !paths.contains(path) {
+        if path.exists() && !paths.contains(path) && !is_ancestor_or_descendant(path, &paths) {
             paths.push(path.clone());
         }
     }
@@ -279,7 +279,10 @@ fn probe_pnpm_paths() -> Vec<PathBuf> {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let path = PathBuf::from(&path_str);
             if path.exists() {
-                paths.push(path);
+                // `pnpm store path` returns e.g. .../store/v10; go up to `store`
+                // so the tree shows the full store hierarchy.
+                let root = path.parent().unwrap_or(&path);
+                paths.push(root.to_path_buf());
             }
         }
     }
@@ -298,6 +301,13 @@ fn probe_pnpm_paths() -> Vec<PathBuf> {
     }
 
     paths
+}
+
+/// Returns true if `candidate` is an ancestor or descendant of any path in `existing`.
+fn is_ancestor_or_descendant(candidate: &Path, existing: &[PathBuf]) -> bool {
+    existing
+        .iter()
+        .any(|p| candidate.starts_with(p) || p.starts_with(candidate))
 }
 
 fn dirs_home() -> PathBuf {

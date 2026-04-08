@@ -94,8 +94,10 @@ pub fn semantic_name(path: &Path) -> Option<String> {
 
     // Subdirectories inside the content store
     if path_str.contains(".pnpm-store") || path_str.contains("pnpm/store") {
-        if name == "v3" {
-            return Some("Store v3".to_string());
+        if let Some(version) = name.strip_prefix('v') {
+            if version.chars().all(|c| c.is_ascii_digit()) {
+                return Some(format!("Store v{version}"));
+            }
         }
         if name == "files" {
             return Some("Content Files".to_string());
@@ -267,9 +269,15 @@ mod tests {
     }
 
     #[test]
-    fn semantic_name_store_version() {
+    fn semantic_name_store_version_v3() {
         let path = PathBuf::from("/home/user/.pnpm-store/v3");
         assert_eq!(semantic_name(&path), Some("Store v3".into()));
+    }
+
+    #[test]
+    fn semantic_name_store_version_v10() {
+        let path = PathBuf::from("/Users/julien/Library/pnpm/store/v10");
+        assert_eq!(semantic_name(&path), Some("Store v10".into()));
     }
 
     #[test]
@@ -578,11 +586,9 @@ mod tests {
     }
 
     #[test]
-    fn semantic_name_store_v4_not_recognized() {
-        // semantic_name only recognizes "v3" specifically — future versions
-        // would need a code update. This documents current behavior.
+    fn semantic_name_store_v4_recognized() {
         let path = PathBuf::from("/home/user/.pnpm-store/v4");
-        assert_eq!(semantic_name(&path), None);
+        assert_eq!(semantic_name(&path), Some("Store v4".into()));
     }
 
     // --- metadata: adversarial ---
