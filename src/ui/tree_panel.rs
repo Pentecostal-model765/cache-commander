@@ -72,7 +72,9 @@ pub fn render(
         let name = &node.name;
 
         // Calculate available space for name
-        let prefix_len = indent.len() + arrow.len() + marker.len() + status_icon.len();
+        // Use display width for Unicode icons (⚠ and ↓ are each 1 column but multi-byte)
+        let icon_display_width = status_icon.chars().count();
+        let prefix_len = indent.len() + arrow.len() + marker.len() + icon_display_width;
         let size_len = size_str.len() + 1; // +1 for padding
         let available = width.saturating_sub(prefix_len + size_len + 1);
         let truncated_name = if name.len() > available {

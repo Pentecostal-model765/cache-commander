@@ -102,6 +102,16 @@ pub fn semantic_name(path: &Path) -> Option<String> {
         if name == "files" {
             return Some("Content Files".to_string());
         }
+        if name == "index" {
+            return Some("Package Index".to_string());
+        }
+    }
+
+    // Index files: {hash}-name@version.json → "name version"
+    if name.ends_with(".json") && path_str.contains("/index/") {
+        if let Some(id) = parse_index_filename(&name) {
+            return Some(format!("{} {}", id.name, id.version));
+        }
     }
 
     // Virtual store entries: name@version directories
@@ -115,34 +125,73 @@ pub fn semantic_name(path: &Path) -> Option<String> {
 }
 
 pub fn package_id(path: &Path) -> Option<super::PackageId> {
-    // Only for virtual store entries
-    if !is_pnpm_virtual_store(path) {
-        return None;
-    }
-
     let name = path.file_name()?.to_string_lossy().to_string();
 
-    // Must contain '@' to be a name@version entry
-    if !name.contains('@') {
+    // pnpm v10 index files: {hash}-{name}@{version}.json
+    if name.ends_with(".json") {
+        let path_str = path.to_string_lossy();
+        if path_str.contains("/index/") {
+            return parse_index_filename(&name);
+        }
+    }
+
+    // Virtual store entries: name@version directories
+    if is_pnpm_virtual_store(path) && name.contains('@') {
+        let (pkg, ver) = parse_virtual_store_name(&name)?;
+        if ver.starts_with(|c: char| c.is_ascii_digit()) {
+            return Some(super::PackageId {
+                ecosystem: "npm",
+                name: pkg,
+                version: ver,
+            });
+        }
+    }
+
+    None
+}
+
+/// Parse a pnpm v10 index filename into a PackageId.
+///
+/// Format: `{62-hex-chars}-{name}@{version}.json`
+/// Scoped: `{62-hex-chars}-@{scope}+{name}@{version}.json`
+///
+/// The filename hash is 62 hex chars (the parent directory has the first 2,
+/// making 64 total = SHA-256).
+fn parse_index_filename(filename: &str) -> Option<super::PackageId> {
+    let base = filename.strip_suffix(".json")?;
+
+    // The hash is 62 hex chars, followed by '-', then the package spec.
+    // Validate and skip the hash prefix.
+    if base.len() < 64 {
+        return None; // too short: need 62 hash + '-' + at least 1 char
+    }
+    let hash_part = &base[..62];
+    if !hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    if base.as_bytes()[62] != b'-' {
+        return None;
+    }
+    let spec = &base[63..]; // "name@version" or "@scope+name@version"
+
+    // Find the last '@' which separates name from version
+    let at_pos = spec.rfind('@')?;
+    let version = &spec[at_pos + 1..];
+    if version.is_empty() || !version.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
 
-    let (pkg, ver) = parse_virtual_store_name(&name)?;
-
-    // Version must start with a digit
-    if !ver
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit())
-        .unwrap_or(false)
-    {
+    let raw_name = &spec[..at_pos];
+    if raw_name.is_empty() {
         return None;
     }
+
+    let name = raw_name.replace('+', "/");
 
     Some(super::PackageId {
         ecosystem: "npm",
-        name: pkg,
-        version: ver,
+        name,
+        version: version.to_string(),
     })
 }
 
@@ -327,6 +376,49 @@ mod tests {
     #[test]
     fn package_id_pnpm_dir_returns_none() {
         let path = PathBuf::from("/project/node_modules/.pnpm");
+        assert_eq!(package_id(&path), None);
+    }
+
+    // --- Index file parsing (pnpm v10) ---
+
+    #[test]
+    fn package_id_index_unscoped() {
+        let path = PathBuf::from(
+            "/Users/julien/Library/pnpm/store/v10/index/3e/585d15c8a594e20d7de57b362ea81754c011acb2641a19f1b72c8531ea3982-lodash@4.17.20.json",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "lodash");
+        assert_eq!(id.version, "4.17.20");
+    }
+
+    #[test]
+    fn package_id_index_scoped() {
+        let path = PathBuf::from(
+            "/Users/julien/Library/pnpm/store/v10/index/0e/0e8c6b62ac09d19bf960ba5290551491972f9f0c0c0ea8c8e35b8f217ffb9b-@babel+template@7.28.6.json",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "@babel/template");
+        assert_eq!(id.version, "7.28.6");
+    }
+
+    #[test]
+    fn package_id_index_hyphenated_name() {
+        let path = PathBuf::from(
+            "/home/user/.pnpm-store/v3/index/ab/985c96e984d46e95603f151dedf9c0568889ff824f2e522488b9fb7cb8a6c0-is-number-object@1.1.1.json",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "is-number-object");
+        assert_eq!(id.version, "1.1.1");
+    }
+
+    #[test]
+    fn package_id_index_content_files_still_none() {
+        let path = PathBuf::from(
+            "/Users/julien/Library/pnpm/store/v10/files/61/9a372bcd920fb462ca2d04d4440fa2",
+        );
         assert_eq!(package_id(&path), None);
     }
 
