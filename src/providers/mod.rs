@@ -380,6 +380,15 @@ mod tests {
     }
 
     #[test]
+    fn detect_yarn_releases_is_not_yarn_cache() {
+        // .yarn/releases should NOT be detected as Yarn cache
+        assert_eq!(
+            detect(&PathBuf::from("/project/.yarn/releases/yarn-4.0.cjs")),
+            CacheKind::Unknown
+        );
+    }
+
+    #[test]
     fn detect_pnpm_store() {
         assert_eq!(
             detect(&PathBuf::from("/home/user/.pnpm-store/v3/files/ab/cd")),

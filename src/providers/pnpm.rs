@@ -21,23 +21,62 @@ pub fn is_pnpm_virtual_store(path: &Path) -> bool {
 /// - `"lodash@4.17.21"` → `("lodash", "4.17.21")`
 /// - `"@babel+core@7.24.0"` → `("@babel/core", "7.24.0")`
 /// - `"@types+node@22.0.0"` → `("@types/node", "22.0.0")`
+/// - `"react-dom@18.2.0_react@18.2.0"` → `("react-dom", "18.2.0")`
 pub fn parse_virtual_store_name(dir_name: &str) -> Option<(String, String)> {
+    // pnpm v9+ appends peer dependency info after '_':
+    // e.g., "react-dom@18.2.0_react@18.2.0"
+    // Strip everything after the first '_' that follows a version.
+    let base = strip_peer_deps(dir_name);
+
     // Find the last '@' which separates name from version
-    let at_pos = dir_name.rfind('@')?;
-    let version = &dir_name[at_pos + 1..];
+    let at_pos = base.rfind('@')?;
+    let version = &base[at_pos + 1..];
 
     if version.is_empty() {
         return None;
     }
 
-    let raw_name = &dir_name[..at_pos];
+    let raw_name = &base[..at_pos];
     if raw_name.is_empty() {
         return None;
     }
 
     // Convert '+' back to '/' for scoped packages: @babel+core → @babel/core
     let name = raw_name.replace('+', "/");
+
+    // Reject degenerate names like bare "@"
+    if name == "@" {
+        return None;
+    }
+
     Some((name, version.to_string()))
+}
+
+/// Strip peer dependency suffix from a pnpm virtual store directory name.
+/// pnpm uses '_' to separate the base package from peer deps:
+/// `react-dom@18.2.0_react@18.2.0` → `react-dom@18.2.0`
+/// But scoped packages use '+' not '_' for the scope separator,
+/// so `_` always indicates peer deps in practice.
+fn strip_peer_deps(dir_name: &str) -> &str {
+    // Find the version '@': for scoped packages, skip the leading '@'
+    let search_start = if let Some(after_at) = dir_name.strip_prefix('@') {
+        // Find the second '@' (version delimiter)
+        match after_at.find('@') {
+            Some(pos) => pos + 1, // position in dir_name
+            None => return dir_name,
+        }
+    } else {
+        match dir_name.find('@') {
+            Some(pos) => pos,
+            None => return dir_name,
+        }
+    };
+
+    // Now look for '_' after the version '@'
+    match dir_name[search_start..].find('_') {
+        Some(pos) => &dir_name[..search_start + pos],
+        None => dir_name,
+    }
 }
 
 pub fn semantic_name(path: &Path) -> Option<String> {
@@ -64,7 +103,7 @@ pub fn semantic_name(path: &Path) -> Option<String> {
     }
 
     // Virtual store entries: name@version directories
-    if name.contains('@') {
+    if name.contains('@') && is_pnpm_virtual_store(path) {
         if let Some((pkg, ver)) = parse_virtual_store_name(&name) {
             return Some(format!("{} {}", pkg, ver));
         }
@@ -316,5 +355,59 @@ mod tests {
                 .iter()
                 .any(|f| f.label == "Type" && f.value == "Content-addressed store")
         );
+    }
+
+    // --- Peer dependency handling ---
+
+    #[test]
+    fn parse_with_peer_deps() {
+        let (name, ver) = parse_virtual_store_name("react-dom@18.2.0_react@18.2.0").unwrap();
+        assert_eq!(name, "react-dom");
+        assert_eq!(ver, "18.2.0");
+    }
+
+    #[test]
+    fn parse_scoped_with_peer_deps() {
+        let (name, ver) =
+            parse_virtual_store_name("@babel+core@7.24.0_@babel+preset-env@7.24.0").unwrap();
+        assert_eq!(name, "@babel/core");
+        assert_eq!(ver, "7.24.0");
+    }
+
+    #[test]
+    fn parse_with_multiple_peer_deps() {
+        let (name, ver) =
+            parse_virtual_store_name("eslint-plugin-react@7.35.0_eslint@9.0.0_typescript@5.0.0")
+                .unwrap();
+        assert_eq!(name, "eslint-plugin-react");
+        assert_eq!(ver, "7.35.0");
+    }
+
+    #[test]
+    fn parse_malformed_at_only() {
+        // Just "@" as name — should return None
+        assert!(parse_virtual_store_name("@@1.0.0").is_none());
+    }
+
+    #[test]
+    fn package_id_with_non_numeric_version() {
+        // pnpm can have @latest or @next in some contexts
+        let path = PathBuf::from("/project/node_modules/.pnpm/lodash@latest");
+        assert!(package_id(&path).is_none());
+    }
+
+    #[test]
+    fn package_id_with_peer_deps() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/react-dom@18.2.0_react@18.2.0");
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.name, "react-dom");
+        assert_eq!(id.version, "18.2.0");
+    }
+
+    #[test]
+    fn semantic_name_at_dir_outside_virtual_store() {
+        // A directory with @ in name but NOT in node_modules/.pnpm
+        let path = PathBuf::from("/home/user/.pnpm-store/v3/foo@1.0.0");
+        assert_eq!(semantic_name(&path), None);
     }
 }

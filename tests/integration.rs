@@ -872,6 +872,49 @@ fn scanner_expand_yarn_berry_shows_semantic_names() {
 }
 
 #[test]
+fn scanner_expand_pnpm_virtual_store_shows_semantic_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_pnpm_cache(tmp.path());
+
+    let pnpm_path = tmp.path().join("node_modules/.pnpm");
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = ccmd::scanner::start(result_tx);
+
+    scan_tx
+        .send(ccmd::scanner::ScanRequest::ExpandNode(pnpm_path))
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    match result {
+        ccmd::scanner::ScanResult::ChildrenScanned(_, children) => {
+            let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
+            assert!(
+                names
+                    .iter()
+                    .any(|n| n.contains("lodash") && n.contains("4.17.21")),
+                "Should show 'lodash 4.17.21': {:?}",
+                names
+            );
+            assert!(
+                names.iter().any(|n| n.contains("@babel/core")),
+                "Should show '@babel/core 7.24.0': {:?}",
+                names
+            );
+            for child in &children {
+                assert_eq!(
+                    child.kind,
+                    ccmd::tree::node::CacheKind::Pnpm,
+                    "All children should be detected as Pnpm: {:?}",
+                    child.name
+                );
+            }
+        }
+        _ => panic!("Expected ChildrenScanned"),
+    }
+}
+
+#[test]
 fn dedup_across_npm_and_yarn_caches() {
     let tmp = tempfile::tempdir().unwrap();
 

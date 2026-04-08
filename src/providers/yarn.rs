@@ -39,23 +39,43 @@ pub fn normalize_scoped_name(name: &str) -> String {
 pub fn parse_berry_filename(filename: &str) -> Option<(String, String)> {
     let stem = filename.strip_suffix(".zip")?;
 
-    // Find the `-npm-` marker
     let npm_marker = "-npm-";
-    let npm_pos = stem.find(npm_marker)?;
+
+    // Find the correct `-npm-` boundary. Package names can contain `-npm-`
+    // (e.g., `use-npm-module`), so we search from right to left for
+    // a `-npm-` that is followed by a valid version (digit-starting).
+    let mut search_from = stem.len();
+    let npm_pos = loop {
+        // rfind within stem[..search_from]
+        let slice = &stem[..search_from];
+        let pos = slice.rfind(npm_marker)?;
+        let after = &stem[pos + npm_marker.len()..];
+        // Check if what follows starts with a digit (version)
+        if after
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
+            break pos;
+        }
+        // Try earlier occurrence
+        if pos == 0 {
+            return None;
+        }
+        search_from = pos;
+    };
 
     let raw_name = &stem[..npm_pos];
     let after_npm = &stem[npm_pos + npm_marker.len()..];
 
     // after_npm = "<version>-<hash>"
-    // Split from right: last segment is hash, everything before last hyphen is version
-    // But version can contain hyphens (e.g. "5.0.0-beta.1"), so we need to find where
-    // the hash starts. Hashes are hex strings (8+ chars). Walk from right.
     let parts: Vec<&str> = after_npm.split('-').collect();
     if parts.len() < 2 {
         return None;
     }
 
-    // Last part should be the hash: all hex chars
+    // Last part should be the hash
     let hash = parts.last()?;
     if !is_hex_hash(hash) {
         return None;
@@ -65,7 +85,11 @@ pub fn parse_berry_filename(filename: &str) -> Option<(String, String)> {
     let version_parts = &parts[..parts.len() - 1];
     let version = version_parts.join("-");
 
-    // Version must start with a digit
+    if version.is_empty() {
+        return None;
+    }
+
+    // Version must start with a digit (already guaranteed by the search above, but be safe)
     if !version
         .chars()
         .next()
@@ -141,7 +165,9 @@ pub fn parse_classic_filename(filename: &str) -> Option<(String, String)> {
 
 /// Returns true if the string looks like a hex hash (8+ lowercase hex chars).
 fn is_hex_hash(s: &str) -> bool {
-    s.len() >= 8 && s.chars().all(|c| c.is_ascii_hexdigit())
+    s.len() >= 8
+        && s.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 pub fn semantic_name(path: &Path) -> Option<String> {
@@ -441,6 +467,75 @@ mod tests {
     fn package_id_directory_returns_none() {
         let path = PathBuf::from("/project/.yarn/cache");
         assert_eq!(package_id(&path), None);
+    }
+
+    // --- Bug 1: package name contains "-npm-" ---
+
+    #[test]
+    fn parse_berry_package_name_contains_npm() {
+        // Package name contains "-npm-" substring
+        let result = parse_berry_filename("use-npm-module-npm-1.0.0-abcdef012345.zip");
+        assert_eq!(
+            result,
+            Some(("use-npm-module".to_string(), "1.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_berry_npm_run_all() {
+        // Real-world popular package with "npm" in name
+        let result = parse_berry_filename("npm-run-all-npm-4.1.5-abcdef012345.zip");
+        assert_eq!(
+            result,
+            Some(("npm-run-all".to_string(), "4.1.5".to_string()))
+        );
+    }
+
+    // --- Bug 3: is_hex_hash boundary tests ---
+
+    #[test]
+    fn hex_hash_rejects_7_chars() {
+        assert!(!is_hex_hash("abcdef0"));
+    }
+
+    #[test]
+    fn hex_hash_accepts_8_chars() {
+        assert!(is_hex_hash("abcdef01"));
+    }
+
+    #[test]
+    fn hex_hash_rejects_uppercase() {
+        assert!(!is_hex_hash("ABCDEF01"));
+    }
+
+    // --- Edge case tests ---
+
+    #[test]
+    fn parse_classic_digit_in_package_name() {
+        // Package name starts with or contains digits
+        let result = parse_classic_filename("npm-base64-js-1.5.1-abcdef012345.tgz");
+        assert_eq!(result, Some(("base64-js".to_string(), "1.5.1".to_string())));
+    }
+
+    #[test]
+    fn parse_classic_2to3() {
+        let result = parse_classic_filename("npm-2to3-1.0.0-abcdef012345.tgz");
+        assert_eq!(result, Some(("2to3".to_string(), "1.0.0".to_string())));
+    }
+
+    #[test]
+    fn normalize_scoped_multi_hyphen() {
+        // Scoped package with hyphens in package name
+        assert_eq!(
+            normalize_scoped_name("@babel-plugin-transform-runtime"),
+            "@babel/plugin-transform-runtime"
+        );
+    }
+
+    #[test]
+    fn semantic_name_berry_global_cache() {
+        let path = PathBuf::from("/home/user/.cache/yarn/berry/cache");
+        assert_eq!(semantic_name(&path), Some("Yarn Berry Cache".into()));
     }
 
     // --- Metadata ---
