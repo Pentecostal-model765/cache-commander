@@ -118,7 +118,7 @@ fn e2e_yarn_classic_realistic_packages() {
 
     let tmp = tempfile::tempdir().unwrap();
     let project = tmp.path().join("classic");
-    let cache = tmp.path().join("yarn-cache");
+    let cache = tmp.path().join(".yarn-cache");
     std::fs::create_dir_all(&cache).unwrap();
     init_npm_project(&project);
 
