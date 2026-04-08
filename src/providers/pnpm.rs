@@ -410,4 +410,200 @@ mod tests {
         let path = PathBuf::from("/home/user/.pnpm-store/v3/foo@1.0.0");
         assert_eq!(semantic_name(&path), None);
     }
+
+    // =================================================================
+    // Adversarial tests — designed to break the parsers
+    // =================================================================
+
+    // --- parse_virtual_store_name: degenerate inputs ---
+
+    #[test]
+    fn parse_just_at_sign() {
+        assert_eq!(parse_virtual_store_name("@"), None);
+    }
+
+    #[test]
+    fn parse_empty_string() {
+        assert_eq!(parse_virtual_store_name(""), None);
+    }
+
+    #[test]
+    fn parse_at_at_end() {
+        // Name with @ at end — empty version
+        assert_eq!(parse_virtual_store_name("lodash@"), None);
+    }
+
+    #[test]
+    fn parse_multiple_at_signs() {
+        // Extra @ in the middle — rfind finds the last one
+        let result = parse_virtual_store_name("foo@bar@1.0.0");
+        assert_eq!(result, Some(("foo@bar".to_string(), "1.0.0".to_string())));
+    }
+
+    #[test]
+    fn parse_scoped_trailing_slash() {
+        // @babel+@1.0.0 — after replace('+', '/'), name is "@babel/"
+        // This is an invalid package name but the parser accepts it
+        let result = parse_virtual_store_name("@babel+@1.0.0");
+        assert_eq!(result, Some(("@babel/".to_string(), "1.0.0".to_string())));
+    }
+
+    #[test]
+    fn parse_underscores_in_name_no_peers() {
+        // Package with underscores but no peer deps
+        let result = parse_virtual_store_name("my_package@1.0.0");
+        assert_eq!(
+            result,
+            Some(("my_package".to_string(), "1.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_version_with_prerelease() {
+        let result = parse_virtual_store_name("typescript@5.0.0-beta.1");
+        assert_eq!(
+            result,
+            Some(("typescript".to_string(), "5.0.0-beta.1".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_version_with_build_metadata() {
+        let result = parse_virtual_store_name("pkg@1.0.0+build.123");
+        assert_eq!(
+            result,
+            Some(("pkg".to_string(), "1.0.0+build.123".to_string()))
+        );
+    }
+
+    // --- strip_peer_deps: adversarial ---
+
+    #[test]
+    fn strip_peers_no_at_sign() {
+        // No @ at all — return as-is
+        assert_eq!(strip_peer_deps("lodash"), "lodash");
+    }
+
+    #[test]
+    fn strip_peers_underscore_before_at() {
+        // Underscore in package name, before the version @
+        assert_eq!(strip_peer_deps("my_pkg@1.0.0"), "my_pkg@1.0.0");
+    }
+
+    #[test]
+    fn strip_peers_scoped_no_version() {
+        // Scoped package with no version @ — should return as-is
+        assert_eq!(strip_peer_deps("@scope+name"), "@scope+name");
+    }
+
+    #[test]
+    fn strip_peers_double_underscore() {
+        // Real pnpm output: double underscore seen in @testing-library/react peer chain
+        let result = strip_peer_deps(
+            "@testing-library+react@14.2.0_@types+react@18.3.28_react-dom@18.2.0_react@18.2.0__react@18.2.0",
+        );
+        assert_eq!(result, "@testing-library+react@14.2.0");
+    }
+
+    // --- package_id: adversarial ---
+
+    #[test]
+    fn package_id_lock_yaml_in_pnpm() {
+        // pnpm puts lock.yaml inside .pnpm — should not be parsed as a package
+        let path = PathBuf::from("/project/node_modules/.pnpm/lock.yaml");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_node_modules_dir_in_pnpm() {
+        // .pnpm/node_modules directory — not a package
+        let path = PathBuf::from("/project/node_modules/.pnpm/node_modules");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_version_zero() {
+        // Version starting with 0 — should be accepted
+        let path = PathBuf::from("/project/node_modules/.pnpm/pkg@0.0.1");
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.name, "pkg");
+        assert_eq!(id.version, "0.0.1");
+    }
+
+    #[test]
+    fn package_id_version_is_tag() {
+        // @next, @canary — not numeric, should be rejected
+        let path = PathBuf::from("/project/node_modules/.pnpm/pkg@next");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_version_is_canary() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/pkg@canary");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_scoped_with_complex_peers() {
+        // Real-world: scoped + multiple peer deps
+        let path = PathBuf::from(
+            "/project/node_modules/.pnpm/@testing-library+react@14.2.0_@types+react@18.3.28_react-dom@18.2.0_react@18.2.0__react@18.2.0",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.name, "@testing-library/react");
+        assert_eq!(id.version, "14.2.0");
+        assert_eq!(id.ecosystem, "npm");
+    }
+
+    #[test]
+    fn package_id_not_in_virtual_store() {
+        // Has @ but is NOT under node_modules/.pnpm
+        let path = PathBuf::from("/home/user/.pnpm-store/v3/lodash@4.17.21");
+        assert_eq!(package_id(&path), None);
+    }
+
+    // --- semantic_name: adversarial ---
+
+    #[test]
+    fn semantic_name_lock_yaml() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/lock.yaml");
+        // No @ sign, so should not try to parse
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_node_modules_inside_pnpm() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/node_modules");
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_store_v4_not_recognized() {
+        // semantic_name only recognizes "v3" specifically — future versions
+        // would need a code update. This documents current behavior.
+        let path = PathBuf::from("/home/user/.pnpm-store/v4");
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    // --- metadata: adversarial ---
+
+    #[test]
+    fn metadata_empty_vec_for_unknown_path() {
+        let path = PathBuf::from("/tmp/random/dir");
+        let fields = metadata(&path);
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn metadata_pnpm_store_shows_correct_count() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().join(".pnpm-store");
+        std::fs::create_dir_all(store_dir.join("v3")).unwrap();
+        std::fs::create_dir_all(store_dir.join("tmp")).unwrap();
+        std::fs::write(store_dir.join("some-file"), "x").unwrap();
+
+        let fields = metadata(&store_dir);
+        let entries_field = fields.iter().find(|f| f.label == "Entries").unwrap();
+        assert_eq!(entries_field.value, "3"); // v3 + tmp + some-file
+    }
 }

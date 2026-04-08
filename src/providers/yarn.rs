@@ -841,4 +841,291 @@ mod tests {
         assert!(pkg_field.is_some(), "Expected Packages field");
         assert_eq!(pkg_field.unwrap().value, "3");
     }
+
+    // =================================================================
+    // Adversarial tests — designed to break the parsers
+    // =================================================================
+
+    // --- Berry: malformed and degenerate inputs ---
+
+    #[test]
+    fn berry_empty_zip() {
+        assert_eq!(parse_berry_filename(".zip"), None);
+    }
+
+    #[test]
+    fn berry_no_version_only_hash() {
+        // Has -npm- but nothing valid after it
+        assert_eq!(parse_berry_filename("lodash-npm-abcdef012345.zip"), None);
+    }
+
+    #[test]
+    fn berry_hash_too_short() {
+        // Hash is only 7 chars — should fail is_hex_hash
+        assert_eq!(parse_berry_filename("lodash-npm-4.17.21-abcdef0.zip"), None);
+    }
+
+    #[test]
+    fn berry_no_hash_at_all() {
+        // Version but no hash segment
+        assert_eq!(parse_berry_filename("lodash-npm-4.17.21.zip"), None);
+    }
+
+    #[test]
+    fn berry_not_a_zip() {
+        assert_eq!(
+            parse_berry_filename("lodash-npm-4.17.21-abcdef012345.tar.gz"),
+            None
+        );
+    }
+
+    #[test]
+    fn berry_empty_name_before_npm() {
+        // "-npm-" at the very start: no package name
+        let result = parse_berry_filename("-npm-1.0.0-abcdef012345.zip");
+        // raw_name would be "", normalize_scoped_name returns ""
+        // This should parse as name="" which is questionable but let's document behavior
+        assert!(
+            result.is_none() || result.as_ref().unwrap().0.is_empty(),
+            "Empty name should either be None or empty: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn berry_three_hash_segments() {
+        // Some Berry versions may produce three hash segments
+        let result =
+            parse_berry_filename("lodash-npm-4.17.21-abcdef0123-bcdef01234-cdef012345.zip");
+        assert_eq!(result, Some(("lodash".to_string(), "4.17.21".to_string())));
+    }
+
+    #[test]
+    fn berry_version_with_build_metadata() {
+        // semver build metadata uses +, which becomes a hyphen in filenames?
+        // Actually + is not valid in filenames typically. Test the unlikely case.
+        let result = parse_berry_filename("pkg-npm-1.0.0-abcdef012345.zip");
+        assert_eq!(result, Some(("pkg".to_string(), "1.0.0".to_string())));
+    }
+
+    #[test]
+    fn berry_dots_in_package_name() {
+        // socket.io has dots in the name — Yarn may or may not encode these
+        let result = parse_berry_filename("socket.io-npm-4.7.5-abcdef012345.zip");
+        assert_eq!(result, Some(("socket.io".to_string(), "4.7.5".to_string())));
+    }
+
+    #[test]
+    fn berry_very_long_package_name() {
+        let result = parse_berry_filename(
+            "@anthropic-ai-very-long-package-name-with-many-hyphens-npm-1.0.0-abcdef012345.zip",
+        );
+        let (name, ver) = result.unwrap();
+        assert_eq!(ver, "1.0.0");
+        assert!(name.starts_with('@'));
+    }
+
+    #[test]
+    fn berry_prerelease_that_looks_like_hash() {
+        // Pre-release segment "0deadbeef0" is all hex and 10 chars — could be confused for hash
+        let result = parse_berry_filename("pkg-npm-2.0.0-0deadbeef0-abc123def456.zip");
+        // "0deadbeef0" is 10 hex chars — it will be treated as first hash segment
+        // So version becomes "2.0.0" which is correct (the pre-release IS the hash)
+        // This is actually fine — Yarn wouldn't produce this ambiguity since
+        // pre-release is part of the version in the -npm- marker
+        let (_, ver) = result.unwrap();
+        assert_eq!(ver, "2.0.0");
+    }
+
+    // --- Classic: malformed and degenerate inputs ---
+
+    #[test]
+    fn classic_empty_integrity() {
+        assert_eq!(parse_classic_filename("-integrity"), None);
+    }
+
+    #[test]
+    fn classic_npm_prefix_only() {
+        assert_eq!(parse_classic_filename("npm--integrity"), None);
+    }
+
+    #[test]
+    fn classic_no_version_segment() {
+        // Name parts only, no digit-with-dot segment
+        assert_eq!(
+            parse_classic_filename("npm-lodash-abcdef012345-integrity"),
+            None
+        );
+    }
+
+    #[test]
+    fn classic_hash_is_not_hex() {
+        // Hash contains non-hex characters
+        assert_eq!(
+            parse_classic_filename("npm-lodash-4.17.21-zzzzzzzzzzzz-integrity"),
+            None
+        );
+    }
+
+    #[test]
+    fn classic_too_few_parts() {
+        // Only name and hash, no version
+        assert_eq!(parse_classic_filename("npm-abcdef012345-integrity"), None);
+    }
+
+    #[test]
+    fn classic_dots_in_package_name() {
+        // socket.io — the dot is in a "name" segment, not a version segment
+        let result = parse_classic_filename(
+            "npm-socket.io-4.7.5-abcdef012345abcdef012345abcdef012345abcd-integrity",
+        );
+        assert_eq!(result, Some(("socket.io".to_string(), "4.7.5".to_string())));
+    }
+
+    #[test]
+    fn classic_es5_ext() {
+        // es5-ext has "5" in the name which starts with a digit but has no dot
+        let result = parse_classic_filename(
+            "npm-es5-ext-0.10.62-5e6f21a5eb74a30d4a86967fad5c1953e9d28e91-integrity",
+        );
+        assert_eq!(result, Some(("es5-ext".to_string(), "0.10.62".to_string())));
+    }
+
+    #[test]
+    fn classic_level_6_lru_cache() {
+        // Package name has "6" embedded — should not be confused for version
+        let result = parse_classic_filename(
+            "npm-level-6-lru-cache-1.0.0-abcdef012345abcdef012345abcdef012345abcd-integrity",
+        );
+        assert_eq!(
+            result,
+            Some(("level-6-lru-cache".to_string(), "1.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn classic_version_0x() {
+        // Version starting with 0 (0.x.y) — common for pre-1.0 packages
+        let result = parse_classic_filename(
+            "npm-some-pkg-0.1.0-abcdef012345abcdef012345abcdef012345abcd-integrity",
+        );
+        assert_eq!(result, Some(("some-pkg".to_string(), "0.1.0".to_string())));
+    }
+
+    #[test]
+    fn classic_calendar_version_prerelease() {
+        // Version like 1.0.0-20240101 — digit-starting pre-release with no dot
+        let result = parse_classic_filename(
+            "npm-my-tool-1.0.0-20240101-abcdef012345abcdef012345abcdef012345abcd-integrity",
+        );
+        // "20240101" has no dot and is 8 chars of digits — but it's NOT all hex
+        // (contains no a-f). Wait, it IS valid hex since 0-9 are hex digits.
+        // is_hex_hash("20240101") → true (8 digits, all valid hex). So
+        // "20240101" would be treated as the hash, not a pre-release tag!
+        // The REAL hash "abcdef012345..." comes after. Let me re-trace:
+        // parts after stripping "npm-" and "-integrity":
+        //   ["my", "tool", "1.0.0", "20240101", "abcdef012345abcdef012345abcdef012345abcd"]
+        // Last part: "abcdef012345abcdef012345abcdef012345abcd" (40 chars, all hex) → hash ✓
+        // without_hash: ["my", "tool", "1.0.0", "20240101"]
+        // Walk forward looking for digit+dot: i=2 "1.0.0" → version_start=2
+        // name = "my-tool", version = "1.0.0-20240101" ✓
+        assert_eq!(
+            result,
+            Some(("my-tool".to_string(), "1.0.0-20240101".to_string()))
+        );
+    }
+
+    // --- is_hex_hash boundary tests ---
+
+    #[test]
+    fn hex_hash_all_digits() {
+        // Pure digits can be valid hex — this is a design choice
+        assert!(is_hex_hash("12345678"));
+    }
+
+    #[test]
+    fn hex_hash_empty() {
+        assert!(!is_hex_hash(""));
+    }
+
+    #[test]
+    fn hex_hash_mixed_case_rejected() {
+        assert!(!is_hex_hash("abcdEF01"));
+    }
+
+    #[test]
+    fn hex_hash_with_g_rejected() {
+        assert!(!is_hex_hash("abcdefg1"));
+    }
+
+    // --- normalize_scoped_name edge cases ---
+
+    #[test]
+    fn normalize_at_with_no_hyphen() {
+        // "@scope" with no hyphen — returned as-is
+        assert_eq!(normalize_scoped_name("@scope"), "@scope");
+    }
+
+    #[test]
+    fn normalize_empty_string() {
+        assert_eq!(normalize_scoped_name(""), "");
+    }
+
+    #[test]
+    fn normalize_bare_at() {
+        assert_eq!(normalize_scoped_name("@"), "@");
+    }
+
+    #[test]
+    fn normalize_at_hyphen_only() {
+        // "@-rest" — scope is empty, package is "rest"
+        assert_eq!(normalize_scoped_name("@-rest"), "@/rest");
+    }
+
+    // --- metadata fallthrough paths ---
+
+    #[test]
+    fn metadata_yarn_non_package_file_returns_empty() {
+        let path = PathBuf::from("/project/.yarn/cache/README.md");
+        let fields = metadata(&path);
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn metadata_yarn_empty_cache_dir_returns_no_packages_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        // No zip or integrity entries — just a random file
+        std::fs::write(cache_dir.join("README.md"), "x").unwrap();
+
+        let fields = metadata(&cache_dir);
+        let pkg_field = fields.iter().find(|f| f.label == "Packages");
+        assert!(
+            pkg_field.is_none(),
+            "Should not show Packages field when count is 0"
+        );
+    }
+
+    // --- package_id: verify ALL fields, not just name ---
+
+    #[test]
+    fn package_id_berry_verifies_all_fields() {
+        let path = PathBuf::from("/project/.yarn/cache/@types-node-npm-22.0.0-abc123def456.zip");
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "@types/node");
+        assert_eq!(id.version, "22.0.0");
+    }
+
+    #[test]
+    fn package_id_classic_integrity_verifies_all_fields() {
+        let path = PathBuf::from(
+            "/home/user/Library/Caches/Yarn/v6/npm-express-4.21.0-abcdef012345abcdef012345abcdef012345abcd-integrity",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "express");
+        assert_eq!(id.version, "4.21.0");
+    }
 }

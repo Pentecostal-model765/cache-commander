@@ -695,4 +695,166 @@ mod tests {
         assert!(!is_safe_for_shell("a\nb"));
         assert!(!is_safe_for_shell(""));
     }
+
+    // =================================================================
+    // Adversarial tests — detection collisions & cross-provider edge cases
+    // =================================================================
+
+    // --- Detection collisions: can a path match the wrong provider? ---
+
+    #[test]
+    fn detect_pnpm_inside_npm_cache_is_pnpm() {
+        // node_modules/.pnpm inside an .npm root — pnpm should win
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.npm/node_modules/.pnpm/lodash@4.17.21"
+            )),
+            CacheKind::Pnpm
+        );
+    }
+
+    #[test]
+    fn detect_npm_node_modules_not_pnpm() {
+        // Plain node_modules (no .pnpm) under .npm — should be npm, not pnpm
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.npm/_npx/abc/node_modules/lodash"
+            )),
+            CacheKind::Npm
+        );
+    }
+
+    #[test]
+    fn detect_yarn_dot_yarn_plugins_not_cache() {
+        // .yarn/plugins — NOT a cache directory
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/project/.yarn/plugins/@yarnpkg/plugin-compat.cjs"
+            )),
+            CacheKind::Unknown
+        );
+    }
+
+    #[test]
+    fn detect_yarn_dot_yarn_unplugged_not_cache() {
+        // .yarn/unplugged — NOT a cache directory
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/project/.yarn/unplugged/esbuild-npm-0.19.0/node_modules"
+            )),
+            CacheKind::Unknown
+        );
+    }
+
+    #[test]
+    fn detect_pnpm_dir_outside_node_modules_is_unknown() {
+        // .pnpm ancestor WITHOUT node_modules → Unknown, not Pnpm
+        // The ancestor walk requires "node_modules" in the path for .pnpm
+        // Only the direct name ".pnpm" matches unconditionally
+        assert_eq!(
+            detect(&PathBuf::from("/project/.pnpm/something")),
+            CacheKind::Unknown
+        );
+    }
+
+    #[test]
+    fn detect_pnpm_direct_name_match() {
+        // When the file IS named .pnpm (not a child of it), direct match fires
+        assert_eq!(
+            detect(&PathBuf::from("/project/node_modules/.pnpm")),
+            CacheKind::Pnpm
+        );
+    }
+
+    #[test]
+    fn detect_yarn_inside_pnpm_store() {
+        // Unlikely: a "yarn" dir inside pnpm store — pnpm should win (earlier in walk)
+        assert_eq!(
+            detect(&PathBuf::from("/home/user/.pnpm-store/v3/yarn/something")),
+            CacheKind::Pnpm
+        );
+    }
+
+    #[test]
+    fn detect_npm_named_dir_inside_yarn_cache_matches_npm() {
+        // "npm" dir inside Yarn Classic cache — the ancestor walk finds "npm"
+        // in the dir name before reaching "yarn" higher up. This is a known
+        // quirk: the deepest matching ancestor wins. In practice this path
+        // (node_modules/npm inside a Yarn cache entry) is the npm CLI package
+        // itself, and detecting it as Npm is arguably correct.
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.cache/yarn/v6/npm-lodash-4.17.21-abc-integrity/node_modules/npm"
+            )),
+            CacheKind::Npm
+        );
+    }
+
+    // --- Safety: adversarial paths ---
+
+    #[test]
+    fn safety_yarn_berry_nested_deep() {
+        // Deep path inside Berry cache — still Caution
+        assert_eq!(
+            safety(
+                CacheKind::Yarn,
+                &PathBuf::from("/project/.yarn/cache/node_modules/@babel/core/index.js")
+            ),
+            SafetyLevel::Caution
+        );
+    }
+
+    #[test]
+    fn safety_yarn_library_caches_is_safe() {
+        // macOS global cache — Safe (not project-local)
+        assert_eq!(
+            safety(
+                CacheKind::Yarn,
+                &PathBuf::from("/Users/me/Library/Caches/Yarn/v6/npm-lodash-abc-integrity")
+            ),
+            SafetyLevel::Safe
+        );
+    }
+
+    #[test]
+    fn safety_pnpm_store_is_safe() {
+        assert_eq!(
+            safety(
+                CacheKind::Pnpm,
+                &PathBuf::from("/home/user/.pnpm-store/v3/files/ab/cd")
+            ),
+            SafetyLevel::Safe
+        );
+    }
+
+    // --- upgrade_command: Yarn/pnpm with scoped packages ---
+
+    #[test]
+    fn upgrade_command_yarn_scoped() {
+        assert_eq!(
+            upgrade_command(CacheKind::Yarn, "@babel/core", "7.24.0"),
+            Some("yarn add @babel/core@7.24.0".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_command_pnpm_scoped() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pnpm, "@types/node", "22.0.0"),
+            Some("pnpm add @types/node@22.0.0".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_command_yarn_rejects_injection() {
+        assert_eq!(
+            upgrade_command(CacheKind::Yarn, "lodash; rm -rf /", "4.17.21"),
+            None
+        );
+    }
+
+    #[test]
+    fn upgrade_command_pnpm_rejects_injection() {
+        assert_eq!(upgrade_command(CacheKind::Pnpm, "$(whoami)", "1.0.0"), None);
+    }
 }
