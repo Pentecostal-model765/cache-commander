@@ -13,7 +13,6 @@ pub fn is_yarn_cache(path: &Path) -> bool {
 }
 
 /// Returns true if this is a Yarn Berry (v2+) cache path.
-#[allow(dead_code)]
 pub fn is_berry(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
     path_str.contains(".yarn/cache") || path_str.contains("berry/cache")
@@ -21,7 +20,6 @@ pub fn is_berry(path: &Path) -> bool {
 
 /// Normalize a scoped package name: "@babel-core" → "@babel/core".
 /// Only the first hyphen after '@' becomes a '/'.
-#[allow(dead_code)]
 pub fn normalize_scoped_name(name: &str) -> String {
     if let Some(rest) = name.strip_prefix('@') {
         if let Some(hyphen_pos) = rest.find('-') {
@@ -38,7 +36,6 @@ pub fn normalize_scoped_name(name: &str) -> String {
 /// Examples:
 /// - `lodash-npm-4.17.21-6382d821f21d.zip` → `("lodash", "4.17.21")`
 /// - `@babel-core-npm-7.24.0-abc123def456.zip` → `("@babel/core", "7.24.0")`
-#[allow(dead_code)]
 pub fn parse_berry_filename(filename: &str) -> Option<(String, String)> {
     let stem = filename.strip_suffix(".zip")?;
 
@@ -88,7 +85,6 @@ pub fn parse_berry_filename(filename: &str) -> Option<(String, String)> {
 /// - `npm-lodash-4.17.21-6382d821f21d.tgz` → `("lodash", "4.17.21")`
 /// - `npm-@babel-core-7.24.0-abc123def456.tgz` → `("@babel/core", "7.24.0")`
 /// - `npm-is-even-1.0.0-abc123def456.tgz` → `("is-even", "1.0.0")`
-#[allow(dead_code)]
 pub fn parse_classic_filename(filename: &str) -> Option<(String, String)> {
     let stem = filename.strip_suffix(".tgz")?;
 
@@ -148,7 +144,6 @@ fn is_hex_hash(s: &str) -> bool {
     s.len() >= 8 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-#[allow(dead_code)]
 pub fn semantic_name(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_string();
 
@@ -183,7 +178,6 @@ pub fn semantic_name(path: &Path) -> Option<String> {
     None
 }
 
-#[allow(dead_code)]
 pub fn package_id(path: &Path) -> Option<super::PackageId> {
     let name = path.file_name()?.to_string_lossy().to_string();
 
@@ -208,7 +202,6 @@ pub fn package_id(path: &Path) -> Option<super::PackageId> {
     None
 }
 
-#[allow(dead_code)]
 pub fn metadata(path: &Path) -> Vec<MetadataField> {
     let mut fields = Vec::new();
     let name = path

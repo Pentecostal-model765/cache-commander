@@ -68,6 +68,7 @@ pub fn detect(path: &Path) -> CacheKind {
         "chroma" => return CacheKind::Chroma,
         "prisma" => return CacheKind::Prisma,
         ".npm" | "npm" => return CacheKind::Npm,
+        ".yarn-cache" => return CacheKind::Yarn,
         _ => {}
     }
 
@@ -78,6 +79,24 @@ pub fn detect(path: &Path) -> CacheKind {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         match ancestor_name.as_str() {
+            ".yarn-cache" | "Yarn" => return CacheKind::Yarn,
+            ".yarn" => {
+                if path.to_string_lossy().contains(".yarn/cache")
+                    || path.to_string_lossy().contains(".yarn\\cache")
+                {
+                    return CacheKind::Yarn;
+                }
+            }
+            "yarn" => {
+                // ~/.cache/yarn/ is Classic
+                if ancestor.to_string_lossy().contains(".cache") {
+                    return CacheKind::Yarn;
+                }
+                // yarn/berry/cache is Berry global
+                if path.to_string_lossy().contains("berry/cache") {
+                    return CacheKind::Yarn;
+                }
+            }
             "huggingface" => return CacheKind::HuggingFace,
             "pip" => return CacheKind::Pip,
             "uv" => return CacheKind::Uv,
@@ -116,7 +135,7 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Torch => torch::semantic_name(path),
         CacheKind::Chroma => chroma::semantic_name(path),
         CacheKind::Prisma => prisma::semantic_name(path),
-        CacheKind::Yarn => None,
+        CacheKind::Yarn => yarn::semantic_name(path),
         CacheKind::Pnpm => None,
         CacheKind::Unknown => None,
     }
@@ -137,7 +156,7 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Torch => torch::metadata(path),
         CacheKind::Chroma => chroma::metadata(path),
         CacheKind::Prisma => prisma::metadata(path),
-        CacheKind::Yarn => generic::metadata(path),
+        CacheKind::Yarn => yarn::metadata(path),
         CacheKind::Pnpm => generic::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
@@ -156,6 +175,7 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
         CacheKind::Pip => pip::package_id(path),
         CacheKind::Npm => npm::package_id(path),
         CacheKind::Cargo => cargo::package_id(path),
+        CacheKind::Yarn => yarn::package_id(path),
         _ => None,
     }
 }
@@ -177,6 +197,7 @@ pub fn upgrade_command(kind: CacheKind, name: &str, version: &str) -> Option<Str
         CacheKind::Uv => Some(format!("uv pip install {name}>={version}")),
         CacheKind::Npm => Some(format!("npm install {name}@{version}")),
         CacheKind::Cargo => Some(format!("cargo update -p {name}")),
+        CacheKind::Yarn => Some(format!("yarn add {name}@{version}")),
         _ => None,
     }
 }
@@ -297,6 +318,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detect_yarn_classic_cache() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.yarn-cache/v6/npm-lodash-4.17.21-abc.tgz"
+            )),
+            CacheKind::Yarn
+        );
+    }
+
+    #[test]
+    fn detect_yarn_xdg_cache() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.cache/yarn/v6/npm-express-4.21.0-def.tgz"
+            )),
+            CacheKind::Yarn
+        );
+    }
+
+    #[test]
+    fn detect_yarn_berry_cache() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/project/.yarn/cache/lodash-npm-4.17.21-abc.zip"
+            )),
+            CacheKind::Yarn
+        );
+    }
+
+    #[test]
+    fn detect_yarn_macos_library() {
+        assert_eq!(
+            detect(&PathBuf::from("/Users/me/Library/Caches/Yarn/v6")),
+            CacheKind::Yarn
+        );
+    }
+
     // --- semantic_name() dispatch ---
 
     #[test]
@@ -411,6 +470,14 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_command_yarn() {
+        assert_eq!(
+            upgrade_command(CacheKind::Yarn, "lodash", "4.17.21"),
+            Some("yarn add lodash@4.17.21".to_string())
+        );
+    }
+
+    #[test]
     fn upgrade_command_unsupported_kinds_return_none() {
         let unsupported = [
             CacheKind::HuggingFace,
@@ -421,7 +488,6 @@ mod tests {
             CacheKind::Torch,
             CacheKind::Chroma,
             CacheKind::Prisma,
-            CacheKind::Yarn,
             CacheKind::Pnpm,
         ];
         for kind in unsupported {

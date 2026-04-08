@@ -15,7 +15,6 @@ pub enum CacheKind {
     Torch,
     Chroma,
     Prisma,
-    #[allow(dead_code)]
     Yarn,
     #[allow(dead_code)]
     Pnpm,
