@@ -204,6 +204,22 @@ fn probe_yarn_paths() -> Vec<PathBuf> {
         }
     }
 
+    // Yarn 2+ (Berry) cache folder
+    if let Ok(output) = std::process::Command::new("yarn")
+        .args(["config", "get", "cacheFolder"])
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && path_str != "undefined" {
+                let path = PathBuf::from(&path_str);
+                if path.exists() && !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
     // Fallback locations
     let home = dirs_home();
     let fallbacks = [
