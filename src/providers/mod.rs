@@ -115,6 +115,8 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Torch => torch::semantic_name(path),
         CacheKind::Chroma => chroma::semantic_name(path),
         CacheKind::Prisma => prisma::semantic_name(path),
+        CacheKind::Yarn => None,
+        CacheKind::Pnpm => None,
         CacheKind::Unknown => None,
     }
 }
@@ -134,6 +136,8 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Torch => torch::metadata(path),
         CacheKind::Chroma => chroma::metadata(path),
         CacheKind::Prisma => prisma::metadata(path),
+        CacheKind::Yarn => generic::metadata(path),
+        CacheKind::Pnpm => generic::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
 }
@@ -335,6 +339,8 @@ mod tests {
         assert_eq!(safety(CacheKind::Torch, &path), SafetyLevel::Safe);
         assert_eq!(safety(CacheKind::Chroma, &path), SafetyLevel::Safe);
         assert_eq!(safety(CacheKind::Prisma, &path), SafetyLevel::Safe);
+        assert_eq!(safety(CacheKind::Yarn, &path), SafetyLevel::Safe);
+        assert_eq!(safety(CacheKind::Pnpm, &path), SafetyLevel::Safe);
     }
 
     #[test]
@@ -414,6 +420,8 @@ mod tests {
             CacheKind::Torch,
             CacheKind::Chroma,
             CacheKind::Prisma,
+            CacheKind::Yarn,
+            CacheKind::Pnpm,
         ];
         for kind in unsupported {
             assert_eq!(
