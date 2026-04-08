@@ -119,6 +119,20 @@ impl Default for Config {
             roots.push(cargo_registry);
         }
 
+        // Yarn cache paths
+        for path in probe_yarn_paths() {
+            if !roots.contains(&path) {
+                roots.push(path);
+            }
+        }
+
+        // pnpm store paths
+        for path in probe_pnpm_paths() {
+            if !roots.contains(&path) {
+                roots.push(path);
+            }
+        }
+
         Self {
             roots,
             sort_by: SortField::Size,
@@ -159,8 +173,18 @@ impl Config {
             .roots
             .into_iter()
             .map(|p| expand_tilde(&p))
-            .filter(|p| p.exists())
-            .collect();
+            .collect::<Vec<_>>();
+
+        // Warn about non-existent roots specified via CLI
+        if !cli.roots.is_empty() {
+            for root in &config.roots {
+                if !root.exists() {
+                    eprintln!("warning: root path does not exist: {}", root.display());
+                }
+            }
+        }
+
+        config.roots.retain(|p| p.exists());
 
         (config, cli)
     }
@@ -168,15 +192,134 @@ impl Config {
     fn load_from_file() -> Option<Self> {
         let proj = ProjectDirs::from("", "", "ccmd")?;
         let config_path = proj.config_dir().join("config.toml");
-        let content = std::fs::read_to_string(config_path).ok()?;
-        toml::from_str(&content).ok()
+        let content = match std::fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                eprintln!("warning: could not read {}: {}", config_path.display(), e);
+                return None;
+            }
+        };
+        match toml::from_str(&content) {
+            Ok(config) => Some(config),
+            Err(e) => {
+                eprintln!("warning: invalid config {}: {}", config_path.display(), e);
+                None
+            }
+        }
     }
+}
+
+fn probe_yarn_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    // Try CLI detection
+    if let Ok(output) = std::process::Command::new("yarn")
+        .args(["cache", "dir"])
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = PathBuf::from(&path_str);
+            if path.exists() {
+                paths.push(path);
+            }
+        }
+    }
+
+    // Yarn 2+ (Berry) cache folder
+    if let Ok(output) = std::process::Command::new("yarn")
+        .args(["config", "get", "cacheFolder"])
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && path_str != "undefined" {
+                let path = PathBuf::from(&path_str);
+                if path.exists() && !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    // Fallback locations
+    let home = dirs_home();
+    let fallbacks = [
+        home.join(".yarn-cache"),
+        home.join(".cache/yarn"),
+        home.join(".yarn/berry/cache"),
+    ];
+    #[cfg(target_os = "macos")]
+    let macos_fallbacks = [home.join("Library/Caches/Yarn")];
+    #[cfg(not(target_os = "macos"))]
+    let macos_fallbacks: [PathBuf; 0] = [];
+
+    for path in fallbacks.iter().chain(macos_fallbacks.iter()) {
+        if path.exists() && !paths.contains(path) && !is_ancestor_or_descendant(path, &paths) {
+            paths.push(path.clone());
+        }
+    }
+
+    paths
+}
+
+fn probe_pnpm_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    // Try CLI detection
+    if let Ok(output) = std::process::Command::new("pnpm")
+        .args(["store", "path"])
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = PathBuf::from(&path_str);
+            if path.exists() {
+                // `pnpm store path` returns e.g. .../store/v10; go up to `store`
+                // so the tree shows the full store hierarchy.
+                let root = path
+                    .parent()
+                    .filter(|p| p.parent().is_some()) // reject "/" or ""
+                    .unwrap_or(&path);
+                paths.push(root.to_path_buf());
+            }
+        }
+    }
+
+    // Fallback locations
+    let home = dirs_home();
+    let fallbacks = [
+        home.join(".pnpm-store"),
+        home.join(".local/share/pnpm/store"),
+    ];
+
+    for path in &fallbacks {
+        if path.exists() && !paths.contains(path) && !is_ancestor_or_descendant(path, &paths) {
+            paths.push(path.clone());
+        }
+    }
+
+    paths
+}
+
+/// Returns true if `candidate` is an ancestor or descendant of any path in `existing`.
+fn is_ancestor_or_descendant(candidate: &Path, existing: &[PathBuf]) -> bool {
+    existing
+        .iter()
+        .any(|p| candidate.starts_with(p) || p.starts_with(candidate))
 }
 
 fn dirs_home() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .unwrap_or_else(|| {
+            eprintln!("warning: could not determine home directory, using /");
+            PathBuf::from("/")
+        })
 }
 
 fn expand_tilde(path: &Path) -> PathBuf {
@@ -350,6 +493,60 @@ mod tests {
         let config = Config::default();
         assert!(!config.vulncheck.enabled);
         assert!(!config.versioncheck.enabled);
+    }
+
+    #[test]
+    fn probe_yarn_cache_handles_missing_tool() {
+        // yarn may not be installed — just verify no panic
+        let paths = probe_yarn_paths();
+        let _ = paths;
+    }
+
+    #[test]
+    fn probe_pnpm_cache_handles_missing_tool() {
+        let paths = probe_pnpm_paths();
+        let _ = paths;
+    }
+
+    #[test]
+    fn ancestor_or_descendant_child_detected() {
+        let existing = vec![PathBuf::from("/home/user/Library/Caches/Yarn")];
+        assert!(is_ancestor_or_descendant(
+            Path::new("/home/user/Library/Caches/Yarn/v6"),
+            &existing
+        ));
+    }
+
+    #[test]
+    fn ancestor_or_descendant_parent_detected() {
+        let existing = vec![PathBuf::from("/home/user/Library/Caches/Yarn/v6")];
+        assert!(is_ancestor_or_descendant(
+            Path::new("/home/user/Library/Caches/Yarn"),
+            &existing
+        ));
+    }
+
+    #[test]
+    fn ancestor_or_descendant_sibling_not_detected() {
+        let existing = vec![PathBuf::from("/home/user/.npm")];
+        assert!(!is_ancestor_or_descendant(
+            Path::new("/home/user/.yarn"),
+            &existing
+        ));
+    }
+
+    #[test]
+    fn ancestor_or_descendant_empty_list() {
+        assert!(!is_ancestor_or_descendant(Path::new("/any/path"), &[]));
+    }
+
+    #[test]
+    fn ancestor_or_descendant_exact_match() {
+        let existing = vec![PathBuf::from("/home/user/.npm")];
+        assert!(is_ancestor_or_descendant(
+            Path::new("/home/user/.npm"),
+            &existing
+        ));
     }
 
     #[cfg(feature = "mcp")]
