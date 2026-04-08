@@ -1,0 +1,320 @@
+use super::MetadataField;
+use std::path::Path;
+
+/// Returns true if the path is within a known pnpm cache/store location.
+#[allow(dead_code)]
+pub fn is_pnpm_cache(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.contains(".pnpm-store")
+        || path_str.contains("pnpm/store")
+        || path_str.contains("node_modules/.pnpm")
+}
+
+/// Returns true if the path is within the pnpm virtual store (node_modules/.pnpm).
+pub fn is_pnpm_virtual_store(path: &Path) -> bool {
+    path.to_string_lossy().contains("node_modules/.pnpm")
+}
+
+/// Parse a pnpm virtual store directory name into (name, version).
+///
+/// Examples:
+/// - `"lodash@4.17.21"` → `("lodash", "4.17.21")`
+/// - `"@babel+core@7.24.0"` → `("@babel/core", "7.24.0")`
+/// - `"@types+node@22.0.0"` → `("@types/node", "22.0.0")`
+pub fn parse_virtual_store_name(dir_name: &str) -> Option<(String, String)> {
+    // Find the last '@' which separates name from version
+    let at_pos = dir_name.rfind('@')?;
+    let version = &dir_name[at_pos + 1..];
+
+    if version.is_empty() {
+        return None;
+    }
+
+    let raw_name = &dir_name[..at_pos];
+    if raw_name.is_empty() {
+        return None;
+    }
+
+    // Convert '+' back to '/' for scoped packages: @babel+core → @babel/core
+    let name = raw_name.replace('+', "/");
+    Some((name, version.to_string()))
+}
+
+pub fn semantic_name(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    let path_str = path.to_string_lossy();
+
+    // Top-level store directories
+    if name == ".pnpm-store" {
+        return Some("pnpm Content Store".to_string());
+    }
+
+    if name == ".pnpm" {
+        return Some("pnpm Virtual Store".to_string());
+    }
+
+    // Subdirectories inside the content store
+    if path_str.contains(".pnpm-store") || path_str.contains("pnpm/store") {
+        if name == "v3" {
+            return Some("Store v3".to_string());
+        }
+        if name == "files" {
+            return Some("Content Files".to_string());
+        }
+    }
+
+    // Virtual store entries: name@version directories
+    if name.contains('@') {
+        if let Some((pkg, ver)) = parse_virtual_store_name(&name) {
+            return Some(format!("{} {}", pkg, ver));
+        }
+    }
+
+    None
+}
+
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    // Only for virtual store entries
+    if !is_pnpm_virtual_store(path) {
+        return None;
+    }
+
+    let name = path.file_name()?.to_string_lossy().to_string();
+
+    // Must contain '@' to be a name@version entry
+    if !name.contains('@') {
+        return None;
+    }
+
+    let (pkg, ver) = parse_virtual_store_name(&name)?;
+
+    // Version must start with a digit
+    if !ver
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+
+    Some(super::PackageId {
+        ecosystem: "npm",
+        name: pkg,
+        version: ver,
+    })
+}
+
+pub fn metadata(path: &Path) -> Vec<MetadataField> {
+    let mut fields = Vec::new();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let path_str = path.to_string_lossy();
+
+    // Top-level store and virtual store dirs: count entries
+    if name == ".pnpm-store" || name == ".pnpm" {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            let count = entries.filter_map(|e| e.ok()).count();
+            fields.push(MetadataField {
+                label: "Entries".to_string(),
+                value: count.to_string(),
+            });
+        }
+        return fields;
+    }
+
+    // Inside content store
+    if path_str.contains(".pnpm-store") || path_str.contains("pnpm/store") {
+        fields.push(MetadataField {
+            label: "Type".to_string(),
+            value: "Content-addressed store".to_string(),
+        });
+        return fields;
+    }
+
+    // Virtual store entries with @
+    if name.contains('@') && is_pnpm_virtual_store(path) {
+        fields.push(MetadataField {
+            label: "Type".to_string(),
+            value: "Virtual store entry".to_string(),
+        });
+        return fields;
+    }
+
+    fields
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // --- Detection ---
+
+    #[test]
+    fn detects_pnpm_store() {
+        assert!(is_pnpm_cache(&PathBuf::from("/home/user/.pnpm-store/v3")));
+    }
+
+    #[test]
+    fn detects_pnpm_virtual_store() {
+        assert!(is_pnpm_cache(&PathBuf::from(
+            "/project/node_modules/.pnpm/lodash@4.17.21"
+        )));
+    }
+
+    #[test]
+    fn detects_xdg_pnpm_store() {
+        assert!(is_pnpm_cache(&PathBuf::from(
+            "/home/user/.local/share/pnpm/store/v3"
+        )));
+    }
+
+    #[test]
+    fn does_not_detect_unrelated_path() {
+        assert!(!is_pnpm_cache(&PathBuf::from("/home/user/.npm/_cacache")));
+    }
+
+    // --- Parsing ---
+
+    #[test]
+    fn parse_unscoped_package() {
+        assert_eq!(
+            parse_virtual_store_name("lodash@4.17.21"),
+            Some(("lodash".to_string(), "4.17.21".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_scoped_package() {
+        assert_eq!(
+            parse_virtual_store_name("@babel+core@7.24.0"),
+            Some(("@babel/core".to_string(), "7.24.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_scoped_types() {
+        assert_eq!(
+            parse_virtual_store_name("@types+node@22.0.0"),
+            Some(("@types/node".to_string(), "22.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_empty_version_returns_none() {
+        assert_eq!(parse_virtual_store_name("lodash@"), None);
+    }
+
+    #[test]
+    fn parse_no_at_returns_none() {
+        assert_eq!(parse_virtual_store_name("lodash"), None);
+    }
+
+    // --- Semantic name ---
+
+    #[test]
+    fn semantic_name_pnpm_store() {
+        let path = PathBuf::from("/home/user/.pnpm-store");
+        assert_eq!(semantic_name(&path), Some("pnpm Content Store".into()));
+    }
+
+    #[test]
+    fn semantic_name_virtual_store() {
+        let path = PathBuf::from("/project/node_modules/.pnpm");
+        assert_eq!(semantic_name(&path), Some("pnpm Virtual Store".into()));
+    }
+
+    #[test]
+    fn semantic_name_store_version() {
+        let path = PathBuf::from("/home/user/.pnpm-store/v3");
+        assert_eq!(semantic_name(&path), Some("Store v3".into()));
+    }
+
+    #[test]
+    fn semantic_name_virtual_store_entry() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/lodash@4.17.21");
+        assert_eq!(semantic_name(&path), Some("lodash 4.17.21".into()));
+    }
+
+    #[test]
+    fn semantic_name_virtual_store_scoped() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/@babel+core@7.24.0");
+        assert_eq!(semantic_name(&path), Some("@babel/core 7.24.0".into()));
+    }
+
+    #[test]
+    fn semantic_name_content_files() {
+        let path = PathBuf::from("/home/user/.pnpm-store/v3/files");
+        assert_eq!(semantic_name(&path), Some("Content Files".into()));
+    }
+
+    // --- Package ID ---
+
+    #[test]
+    fn package_id_virtual_store_entry() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/lodash@4.17.21");
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "lodash");
+        assert_eq!(id.version, "4.17.21");
+    }
+
+    #[test]
+    fn package_id_virtual_store_scoped() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/@babel+core@7.24.0");
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.ecosystem, "npm");
+        assert_eq!(id.name, "@babel/core");
+        assert_eq!(id.version, "7.24.0");
+    }
+
+    #[test]
+    fn package_id_content_store_returns_none() {
+        let path = PathBuf::from("/home/user/.pnpm-store/v3/files/ab/cd1234");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_pnpm_dir_returns_none() {
+        let path = PathBuf::from("/project/node_modules/.pnpm");
+        assert_eq!(package_id(&path), None);
+    }
+
+    // --- Metadata ---
+
+    #[test]
+    fn metadata_pnpm_store_shows_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().join(".pnpm-store");
+        std::fs::create_dir_all(&store_dir).unwrap();
+        std::fs::create_dir_all(store_dir.join("v3")).unwrap();
+
+        let fields = metadata(&store_dir);
+        assert!(fields.iter().any(|f| f.label == "Entries"));
+    }
+
+    #[test]
+    fn metadata_virtual_store_entry_shows_type() {
+        let path = PathBuf::from("/project/node_modules/.pnpm/lodash@4.17.21");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Type" && f.value == "Virtual store entry")
+        );
+    }
+
+    #[test]
+    fn metadata_content_store_shows_type() {
+        let path = PathBuf::from("/home/user/.pnpm-store/v3/files/ab");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Type" && f.value == "Content-addressed store")
+        );
+    }
+}

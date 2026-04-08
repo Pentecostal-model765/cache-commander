@@ -6,6 +6,7 @@ pub mod homebrew;
 pub mod huggingface;
 pub mod npm;
 pub mod pip;
+pub mod pnpm;
 pub mod pre_commit;
 pub mod prisma;
 pub mod torch;
@@ -69,6 +70,8 @@ pub fn detect(path: &Path) -> CacheKind {
         "prisma" => return CacheKind::Prisma,
         ".npm" | "npm" => return CacheKind::Npm,
         ".yarn-cache" => return CacheKind::Yarn,
+        ".pnpm-store" => return CacheKind::Pnpm,
+        ".pnpm" => return CacheKind::Pnpm,
         _ => {}
     }
 
@@ -79,6 +82,12 @@ pub fn detect(path: &Path) -> CacheKind {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         match ancestor_name.as_str() {
+            ".pnpm-store" => return CacheKind::Pnpm,
+            ".pnpm" => {
+                if ancestor.to_string_lossy().contains("node_modules") {
+                    return CacheKind::Pnpm;
+                }
+            }
             ".yarn-cache" | "Yarn" => return CacheKind::Yarn,
             ".yarn" => {
                 if path.to_string_lossy().contains(".yarn/cache")
@@ -136,7 +145,7 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Chroma => chroma::semantic_name(path),
         CacheKind::Prisma => prisma::semantic_name(path),
         CacheKind::Yarn => yarn::semantic_name(path),
-        CacheKind::Pnpm => None,
+        CacheKind::Pnpm => pnpm::semantic_name(path),
         CacheKind::Unknown => None,
     }
 }
@@ -157,7 +166,7 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Chroma => chroma::metadata(path),
         CacheKind::Prisma => prisma::metadata(path),
         CacheKind::Yarn => yarn::metadata(path),
-        CacheKind::Pnpm => generic::metadata(path),
+        CacheKind::Pnpm => pnpm::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
 }
@@ -176,6 +185,7 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
         CacheKind::Npm => npm::package_id(path),
         CacheKind::Cargo => cargo::package_id(path),
         CacheKind::Yarn => yarn::package_id(path),
+        CacheKind::Pnpm => pnpm::package_id(path),
         _ => None,
     }
 }
@@ -198,13 +208,21 @@ pub fn upgrade_command(kind: CacheKind, name: &str, version: &str) -> Option<Str
         CacheKind::Npm => Some(format!("npm install {name}@{version}")),
         CacheKind::Cargo => Some(format!("cargo update -p {name}")),
         CacheKind::Yarn => Some(format!("yarn add {name}@{version}")),
+        CacheKind::Pnpm => Some(format!("pnpm add {name}@{version}")),
         _ => None,
     }
 }
 
 /// Get safety level for deletion.
-pub fn safety(kind: CacheKind, _path: &Path) -> SafetyLevel {
+pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
     match kind {
+        CacheKind::Pnpm => {
+            if path.to_string_lossy().contains("node_modules/.pnpm") {
+                SafetyLevel::Caution
+            } else {
+                SafetyLevel::Safe
+            }
+        }
         CacheKind::Unknown => SafetyLevel::Caution,
         _ => SafetyLevel::Safe,
     }
@@ -356,6 +374,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detect_pnpm_store() {
+        assert_eq!(
+            detect(&PathBuf::from("/home/user/.pnpm-store/v3/files/ab/cd")),
+            CacheKind::Pnpm
+        );
+    }
+
+    #[test]
+    fn detect_pnpm_virtual_store() {
+        assert_eq!(
+            detect(&PathBuf::from("/project/node_modules/.pnpm/lodash@4.17.21")),
+            CacheKind::Pnpm
+        );
+    }
+
     // --- semantic_name() dispatch ---
 
     #[test]
@@ -400,7 +434,21 @@ mod tests {
         assert_eq!(safety(CacheKind::Chroma, &path), SafetyLevel::Safe);
         assert_eq!(safety(CacheKind::Prisma, &path), SafetyLevel::Safe);
         assert_eq!(safety(CacheKind::Yarn, &path), SafetyLevel::Safe);
-        assert_eq!(safety(CacheKind::Pnpm, &path), SafetyLevel::Safe);
+        assert_eq!(
+            safety(CacheKind::Pnpm, &PathBuf::from("/home/.pnpm-store/v3")),
+            SafetyLevel::Safe
+        );
+    }
+
+    #[test]
+    fn safety_pnpm_virtual_store_is_caution() {
+        assert_eq!(
+            safety(
+                CacheKind::Pnpm,
+                &PathBuf::from("/project/node_modules/.pnpm/lodash@4.17.21")
+            ),
+            SafetyLevel::Caution
+        );
     }
 
     #[test]
@@ -478,6 +526,14 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_command_pnpm() {
+        assert_eq!(
+            upgrade_command(CacheKind::Pnpm, "lodash", "4.17.21"),
+            Some("pnpm add lodash@4.17.21".to_string())
+        );
+    }
+
+    #[test]
     fn upgrade_command_unsupported_kinds_return_none() {
         let unsupported = [
             CacheKind::HuggingFace,
@@ -488,7 +544,6 @@ mod tests {
             CacheKind::Torch,
             CacheKind::Chroma,
             CacheKind::Prisma,
-            CacheKind::Pnpm,
         ];
         for kind in unsupported {
             assert_eq!(
