@@ -103,14 +103,27 @@ pub fn parse_berry_filename(filename: &str) -> Option<(String, String)> {
     Some((name, version))
 }
 
-/// Parse a Yarn Classic filename: `npm-<name>-<version>-<hash>.tgz`
+/// Parse a Yarn Classic cache entry name.
+///
+/// Yarn Classic uses directories (not files) named:
+///   `npm-<name>-<version>-<hash>-integrity`
+/// Or legacy `.tgz` files:
+///   `npm-<name>-<version>-<hash>.tgz`
 ///
 /// Examples:
-/// - `npm-lodash-4.17.21-6382d821f21d.tgz` → `("lodash", "4.17.21")`
-/// - `npm-@babel-core-7.24.0-abc123def456.tgz` → `("@babel/core", "7.24.0")`
-/// - `npm-is-even-1.0.0-abc123def456.tgz` → `("is-even", "1.0.0")`
+/// - `npm-lodash-4.17.21-679591c564c3bffaae8454cf0b3df370c3d6911c-integrity` → `("lodash", "4.17.21")`
+/// - `npm-@babel-core-7.24.0-56cbda6b185ae9d9bed369816a8f4423c5f2ff1b-integrity` → `("@babel/core", "7.24.0")`
+/// - `npm-is-even-1.0.0-76b5055fbad8d294a86b6a949015e1c97b717c06-integrity` → `("is-even", "1.0.0")`
+/// - `npm-lodash-4.17.21-6382d821f21d.tgz` → `("lodash", "4.17.21")` (legacy)
 pub fn parse_classic_filename(filename: &str) -> Option<(String, String)> {
-    let stem = filename.strip_suffix(".tgz")?;
+    // Strip known suffixes: "-integrity" (current format) or ".tgz" (legacy)
+    let stem = if let Some(s) = filename.strip_suffix("-integrity") {
+        s
+    } else if let Some(s) = filename.strip_suffix(".tgz") {
+        s
+    } else {
+        return None;
+    };
 
     // Must start with "npm-"
     let after_npm = stem.strip_prefix("npm-")?;
@@ -194,8 +207,8 @@ pub fn semantic_name(path: &Path) -> Option<String> {
         }
     }
 
-    // Classic tgz files
-    if name.ends_with(".tgz") {
+    // Classic entries: directories ending in -integrity or legacy .tgz files
+    if name.ends_with("-integrity") || name.ends_with(".tgz") {
         if let Some((pkg, ver)) = parse_classic_filename(&name) {
             return Some(format!("{} {}", pkg, ver));
         }
@@ -216,7 +229,8 @@ pub fn package_id(path: &Path) -> Option<super::PackageId> {
         });
     }
 
-    if name.ends_with(".tgz") {
+    // Classic: directories ending in -integrity or legacy .tgz files
+    if name.ends_with("-integrity") || name.ends_with(".tgz") {
         let (pkg, ver) = parse_classic_filename(&name)?;
         return Some(super::PackageId {
             ecosystem: "npm",
@@ -243,26 +257,22 @@ pub fn metadata(path: &Path) -> Vec<MetadataField> {
         return fields;
     }
 
-    if name.ends_with(".tgz") {
+    if name.ends_with("-integrity") || name.ends_with(".tgz") {
         fields.push(MetadataField {
             label: "Format".to_string(),
-            value: "Yarn Classic (.tgz)".to_string(),
+            value: "Yarn Classic".to_string(),
         });
         return fields;
     }
 
-    // Cache root directories: count .zip/.tgz files
+    // Cache root directories: count Berry .zip files and Classic -integrity dirs
     if path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(path) {
             let count = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| {
-                    let p = e.path();
-                    let ext = p
-                        .extension()
-                        .map(|x| x.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    ext == "zip" || ext == "tgz"
+                    let n = e.file_name().to_string_lossy().to_string();
+                    n.ends_with(".zip") || n.ends_with("-integrity") || n.ends_with(".tgz")
                 })
                 .count();
             if count > 0 {
@@ -372,6 +382,69 @@ mod tests {
     fn parse_classic_invalid_no_npm_prefix() {
         let result = parse_classic_filename("lodash-4.17.21-6382d821f21d.tgz");
         assert_eq!(result, None);
+    }
+
+    // --- Classic -integrity format (real Yarn Classic 1.x on-disk format) ---
+
+    #[test]
+    fn parse_classic_integrity_simple() {
+        let result = parse_classic_filename(
+            "npm-lodash-4.17.21-679591c564c3bffaae8454cf0b3df370c3d6911c-integrity",
+        );
+        assert_eq!(result, Some(("lodash".to_string(), "4.17.21".to_string())));
+    }
+
+    #[test]
+    fn parse_classic_integrity_scoped() {
+        let result = parse_classic_filename(
+            "npm-@babel-core-7.24.0-56cbda6b185ae9d9bed369816a8f4423c5f2ff1b-integrity",
+        );
+        assert_eq!(
+            result,
+            Some(("@babel/core".to_string(), "7.24.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_classic_integrity_hyphenated() {
+        let result = parse_classic_filename(
+            "npm-is-even-1.0.0-76b5055fbad8d294a86b6a949015e1c97b717c06-integrity",
+        );
+        assert_eq!(result, Some(("is-even".to_string(), "1.0.0".to_string())));
+    }
+
+    #[test]
+    fn parse_classic_integrity_base64() {
+        let result = parse_classic_filename(
+            "npm-base64-js-1.5.1-1b1b440160a5bf7ad40b650f095963481903930a-integrity",
+        );
+        assert_eq!(result, Some(("base64-js".to_string(), "1.5.1".to_string())));
+    }
+
+    #[test]
+    fn parse_classic_invalid_no_suffix() {
+        // Neither -integrity nor .tgz — should return None
+        let result = parse_classic_filename("npm-lodash-4.17.21-abc123def456");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn semantic_name_classic_integrity_dir() {
+        let path = PathBuf::from(
+            "/Users/me/Library/Caches/Yarn/v6/npm-lodash-4.17.21-679591c564c3bffaae8454cf0b3df370c3d6911c-integrity",
+        );
+        assert_eq!(semantic_name(&path), Some("lodash 4.17.21".into()));
+    }
+
+    #[test]
+    fn package_id_classic_integrity_dir() {
+        let path = PathBuf::from(
+            "/Users/me/Library/Caches/Yarn/v6/npm-@babel-core-7.24.0-56cbda6b185ae9d9bed369816a8f4423c5f2ff1b-integrity",
+        );
+        let id = package_id(&path).unwrap();
+        assert_eq!(id.name, "@babel/core");
+        assert_eq!(id.version, "7.24.0");
+        assert_eq!(id.ecosystem, "npm");
     }
 
     // --- Semantic name ---
@@ -565,13 +638,34 @@ mod tests {
     }
 
     #[test]
+    fn metadata_classic_integrity_shows_format() {
+        let path = PathBuf::from(
+            "/Users/me/Library/Caches/Yarn/v6/npm-lodash-4.17.21-679591c564c3bffaae8454cf0b3df370c3d6911c-integrity",
+        );
+        let fields = metadata(&path);
+        assert!(!fields.is_empty());
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Format" && f.value.contains("Classic"))
+        );
+    }
+
+    #[test]
     fn metadata_cache_dir_counts_packages() {
         let tmp = tempfile::tempdir().unwrap();
         let cache_dir = tmp.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
+        // Berry .zip
         std::fs::write(cache_dir.join("lodash-npm-4.17.21-abc123def456.zip"), "x").unwrap();
-        std::fs::write(cache_dir.join("express-npm-4.21.0-def789abc012.zip"), "x").unwrap();
-        std::fs::write(cache_dir.join("npm-lodash-4.17.21-abc123def456.tgz"), "x").unwrap();
+        // Classic -integrity directory
+        std::fs::create_dir_all(
+            cache_dir.join("npm-express-4.21.0-def789abc012def789abc012def789abc012def7-integrity"),
+        )
+        .unwrap();
+        // Legacy .tgz
+        std::fs::write(cache_dir.join("npm-is-even-1.0.0-abc123def456.tgz"), "x").unwrap();
+        // Non-package file
         std::fs::write(cache_dir.join("README.md"), "x").unwrap();
 
         let fields = metadata(&cache_dir);

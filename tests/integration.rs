@@ -631,9 +631,9 @@ fn create_yarn_berry_cache(root: &std::path::Path) {
 fn create_yarn_classic_cache(root: &std::path::Path) {
     let yarn_cache = root.join(".yarn-cache/v6");
     std::fs::create_dir_all(&yarn_cache).unwrap();
-    std::fs::write(
-        yarn_cache.join("npm-express-4.21.0-abcdef123456.tgz"),
-        "fake tgz contents",
+    // Real Yarn Classic format: directories named npm-<name>-<version>-<hash>-integrity
+    std::fs::create_dir_all(
+        yarn_cache.join("npm-express-4.21.0-abcdef123456abcdef123456abcdef123456abcd-integrity"),
     )
     .unwrap();
 }
