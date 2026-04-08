@@ -230,7 +230,8 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
         }
         CacheKind::Yarn => {
             // Berry project-local caches (.yarn/cache/) may be committed to git (zero-install)
-            if path.to_string_lossy().contains(".yarn/cache") {
+            let path_str = path.to_string_lossy();
+            if path_str.contains(".yarn/cache") || path_str.contains(".yarn\\cache") {
                 SafetyLevel::Caution
             } else {
                 SafetyLevel::Safe

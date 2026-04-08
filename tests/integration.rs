@@ -788,7 +788,7 @@ fn yarn_discover_packages_finds_berry_zips() {
 }
 
 #[test]
-fn yarn_discover_packages_finds_classic_tgz() {
+fn yarn_discover_packages_finds_classic_cache() {
     let tmp = tempfile::tempdir().unwrap();
     create_yarn_classic_cache(tmp.path());
 

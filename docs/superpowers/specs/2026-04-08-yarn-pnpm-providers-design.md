@@ -51,7 +51,8 @@ Two formats, branched internally:
 
 ### Safety
 
-All Yarn cache entries: `SafetyLevel::Safe` (re-downloadable from npm registry).
+- Yarn Classic global caches and Yarn global Berry caches: `SafetyLevel::Safe` (re-downloadable from npm registry).
+- Project-local Yarn Berry caches under `.yarn/cache/`: `SafetyLevel::Caution` (may be committed to git for zero-install).
 
 ### Upgrade Command
 
@@ -108,7 +109,7 @@ If tool is on PATH:
 - `yarn config get cacheFolder` -> Yarn 2+ cache path
 - `pnpm store path` -> pnpm global store path
 
-Add discovered paths to scan roots. Timeout: 2 seconds per command. Failures are silent (tool may not be installed).
+Add discovered paths to scan roots. Failures are silent (tool may not be installed or probing may fail).
 
 ### Fallback Locations (checked even if tool not installed)
 
