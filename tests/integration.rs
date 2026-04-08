@@ -611,6 +611,51 @@ fn osv_query_finds_urllib3_vulns() {
     }
 }
 
+/// Helper to create a fake Yarn Berry cache structure.
+fn create_yarn_berry_cache(root: &std::path::Path) {
+    let yarn_cache = root.join(".yarn/cache");
+    std::fs::create_dir_all(&yarn_cache).unwrap();
+    std::fs::write(
+        yarn_cache.join("lodash-npm-4.17.21-6382d821f21d.zip"),
+        "fake zip contents",
+    )
+    .unwrap();
+    std::fs::write(
+        yarn_cache.join("@babel-core-npm-7.24.0-abc123def456.zip"),
+        "fake zip contents",
+    )
+    .unwrap();
+}
+
+/// Helper to create a fake Yarn Classic cache structure.
+fn create_yarn_classic_cache(root: &std::path::Path) {
+    let yarn_cache = root.join(".yarn-cache/v6");
+    std::fs::create_dir_all(&yarn_cache).unwrap();
+    std::fs::write(
+        yarn_cache.join("npm-express-4.21.0-abcdef123456.tgz"),
+        "fake tgz contents",
+    )
+    .unwrap();
+}
+
+/// Helper to create a fake pnpm cache structure.
+fn create_pnpm_cache(root: &std::path::Path) {
+    // Virtual store
+    let pnpm_vs = root.join("node_modules/.pnpm");
+    let lodash = pnpm_vs.join("lodash@4.17.21/node_modules/lodash");
+    std::fs::create_dir_all(&lodash).unwrap();
+    std::fs::write(lodash.join("index.js"), "module.exports = {}").unwrap();
+
+    let babel = pnpm_vs.join("@babel+core@7.24.0/node_modules/@babel/core");
+    std::fs::create_dir_all(&babel).unwrap();
+    std::fs::write(babel.join("index.js"), "module.exports = {}").unwrap();
+
+    // Content store
+    let store = root.join(".pnpm-store/v3/files/ab");
+    std::fs::create_dir_all(&store).unwrap();
+    std::fs::write(store.join("cd1234abcdef"), "blob content").unwrap();
+}
+
 /// Create a fake npx cache with node_modules for npm scanning tests.
 fn create_npx_cache(root: &std::path::Path) {
     // Root must be named .npm for detect() to identify children as CacheKind::Npm
@@ -717,4 +762,141 @@ fn npm_dep_depth_in_metadata() {
     let depth_field = meta.iter().find(|f| f.label == "Dep depth");
     assert!(depth_field.is_some());
     assert!(depth_field.unwrap().value.contains("transitive"));
+}
+
+#[test]
+fn yarn_discover_packages_finds_berry_zips() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_yarn_berry_cache(tmp.path());
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().join(".yarn")]);
+
+    let names: Vec<&str> = packages.iter().map(|(_, id)| id.name.as_str()).collect();
+    assert!(names.contains(&"lodash"), "Should find lodash: {:?}", names);
+    assert!(
+        names.contains(&"@babel/core"),
+        "Should find @babel/core: {:?}",
+        names
+    );
+    assert_eq!(
+        packages
+            .iter()
+            .filter(|(_, id)| id.ecosystem == "npm")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn yarn_discover_packages_finds_classic_tgz() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_yarn_classic_cache(tmp.path());
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().join(".yarn-cache")]);
+
+    let names: Vec<&str> = packages.iter().map(|(_, id)| id.name.as_str()).collect();
+    assert!(
+        names.contains(&"express"),
+        "Should find express: {:?}",
+        names
+    );
+}
+
+#[test]
+fn pnpm_discover_packages_finds_virtual_store() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_pnpm_cache(tmp.path());
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().join("node_modules/.pnpm")]);
+
+    let names: Vec<&str> = packages.iter().map(|(_, id)| id.name.as_str()).collect();
+    assert!(names.contains(&"lodash"), "Should find lodash: {:?}", names);
+    assert!(
+        names.contains(&"@babel/core"),
+        "Should find @babel/core: {:?}",
+        names
+    );
+}
+
+#[test]
+fn pnpm_content_store_returns_no_packages() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_pnpm_cache(tmp.path());
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().join(".pnpm-store")]);
+
+    assert_eq!(packages.len(), 0, "Store blobs should not yield packages");
+}
+
+#[test]
+fn scanner_expand_yarn_berry_shows_semantic_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_yarn_berry_cache(tmp.path());
+
+    let cache_path = tmp.path().join(".yarn/cache");
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let scan_tx = ccmd::scanner::start(result_tx);
+
+    scan_tx
+        .send(ccmd::scanner::ScanRequest::ExpandNode(cache_path))
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    match result {
+        ccmd::scanner::ScanResult::ChildrenScanned(_, children) => {
+            let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
+            assert!(
+                names
+                    .iter()
+                    .any(|n| n.contains("lodash") && n.contains("4.17.21")),
+                "Should show 'lodash 4.17.21': {:?}",
+                names
+            );
+            assert!(
+                names.iter().any(|n| n.contains("@babel/core")),
+                "Should show '@babel/core 7.24.0': {:?}",
+                names
+            );
+            for child in &children {
+                assert_eq!(
+                    child.kind,
+                    ccmd::tree::node::CacheKind::Yarn,
+                    "All children should be detected as Yarn: {:?}",
+                    child.name
+                );
+            }
+        }
+        _ => panic!("Expected ChildrenScanned"),
+    }
+}
+
+#[test]
+fn dedup_across_npm_and_yarn_caches() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // npm: express via node_modules
+    let npm_dir = tmp.path().join(".npm/_npx/abc/node_modules/express");
+    std::fs::create_dir_all(&npm_dir).unwrap();
+    std::fs::write(
+        npm_dir.join("package.json"),
+        r#"{"name":"express","version":"4.21.0"}"#,
+    )
+    .unwrap();
+
+    // yarn: express via berry zip
+    let yarn_cache = tmp.path().join(".yarn/cache");
+    std::fs::create_dir_all(&yarn_cache).unwrap();
+    std::fs::write(yarn_cache.join("express-npm-4.21.0-abcdef123456.zip"), "z").unwrap();
+
+    let packages = ccmd::scanner::discover_packages(&[tmp.path().to_path_buf()]);
+
+    let express_count = packages
+        .iter()
+        .filter(|(_, id)| id.name == "express" && id.version == "4.21.0")
+        .count();
+    assert_eq!(
+        express_count, 1,
+        "express@4.21.0 should be deduplicated across npm and yarn"
+    );
 }
