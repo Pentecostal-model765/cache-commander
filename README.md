@@ -74,7 +74,7 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 ### Browse and Understand
 
 - **Two-pane TUI** — navigable tree on the left, details on the right
-- **12 cache providers** — semantic names instead of hash directories
+- **15 cache providers** — semantic names instead of hash directories
 - **Safety levels** — green (safe to delete), yellow (may cause rebuilds), red (contains state)
 - **Sort** by size, name, or last modified
 - **Search** with `/` — case-insensitive filter across the tree
@@ -276,7 +276,7 @@ src/
 │   ├── pip.rs, uv.rs    # Python package providers
 │   ├── npm.rs           # npm + npx + node_modules scanning
 │   ├── cargo.rs         # Rust crate provider
-│   └── ...              # 7 more providers
+│   └── ...              # 10 more providers
 ├── security/
 │   ├── mod.rs           # Scan orchestration, vulnerability filtering
 │   ├── osv.rs           # OSV.dev API, version comparison, fix extraction

@@ -245,16 +245,13 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
             }
         }
         CacheKind::Bun => {
-            // ~/.bun and ~/.bun/install contain the runtime binary — not safe to delete.
-            // Only the install/cache subtree (package cache) is safe.
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if name == ".bun" || name == "install" {
-                SafetyLevel::Caution
-            } else {
+            // ~/.bun contains the runtime binary, global installs, etc.
+            // Only the install/cache subtree (package cache) is safe to delete.
+            let path_str = path.to_string_lossy();
+            if path_str.contains("install/cache") || path_str.contains("install\\cache") {
                 SafetyLevel::Safe
+            } else {
+                SafetyLevel::Caution
             }
         }
         CacheKind::Unknown => SafetyLevel::Caution,
@@ -957,6 +954,22 @@ mod tests {
     fn safety_bun_install_dir_is_caution() {
         assert_eq!(
             safety(CacheKind::Bun, &PathBuf::from("/home/user/.bun/install")),
+            SafetyLevel::Caution
+        );
+    }
+
+    #[test]
+    fn safety_bun_bin_is_caution() {
+        assert_eq!(
+            safety(CacheKind::Bun, &PathBuf::from("/home/user/.bun/bin")),
+            SafetyLevel::Caution
+        );
+    }
+
+    #[test]
+    fn safety_bun_bin_binary_is_caution() {
+        assert_eq!(
+            safety(CacheKind::Bun, &PathBuf::from("/home/user/.bun/bin/bun")),
             SafetyLevel::Caution
         );
     }
