@@ -19,7 +19,7 @@ Developer machines accumulate tens of gigabytes of invisible cache data — ML m
 ## Why
 
 - **ML models** (HuggingFace, PyTorch, Whisper) — tens of GB you forgot about
-- **Package caches** (pip, uv, npm, Cargo, Homebrew) — old versions with known CVEs
+- **Package caches** (pip, uv, npm, Yarn, pnpm, Bun, Cargo, Homebrew) — old versions with known CVEs
 - **npm supply chain risk** — transitive deps with install scripts hiding in npx cache
 - **Build artifacts** (pre-commit hooks, Prisma engines) — stale and re-downloadable
 
@@ -114,6 +114,9 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 | PyTorch | `~/.cache/torch` | Model checkpoints |
 | Chroma | `~/.cache/chroma` | Embedding models |
 | Prisma | `~/.cache/prisma` | Engine versions |
+| Yarn | `~/.yarn-cache`, `.yarn/cache` | Package names and versions |
+| pnpm | `~/.pnpm-store` | Package names and versions |
+| Bun | `~/.bun/install/cache` | Package names and versions |
 
 ## Key Bindings
 
