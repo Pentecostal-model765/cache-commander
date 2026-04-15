@@ -79,4 +79,36 @@ mod tests {
         let path = PathBuf::from("/cache/torch/hub/README");
         assert_eq!(semantic_name(&path), None);
     }
+
+    #[test]
+    fn semantic_name_pth_without_hash_uses_stem() {
+        // No trailing -hexhash: fall through to the "[checkpoint] <stem>" branch.
+        let path = PathBuf::from("/cache/torch/hub/checkpoints/mymodel.pth");
+        assert_eq!(semantic_name(&path), Some("[checkpoint] mymodel".into()));
+    }
+
+    #[test]
+    fn semantic_name_pt_extension() {
+        let path = PathBuf::from("/cache/torch/hub/checkpoints/weights.pt");
+        assert_eq!(semantic_name(&path), Some("[checkpoint] weights".into()));
+    }
+
+    #[test]
+    fn metadata_pth_file() {
+        let fields = metadata(&PathBuf::from("/cache/torch/hub/checkpoints/a.pth"));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].label, "Type");
+    }
+
+    #[test]
+    fn metadata_checkpoints_dir() {
+        let fields = metadata(&PathBuf::from("/cache/torch/hub/checkpoints"));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].label, "Contents");
+    }
+
+    #[test]
+    fn metadata_unrelated_empty() {
+        assert!(metadata(&PathBuf::from("/tmp/foo")).is_empty());
+    }
 }

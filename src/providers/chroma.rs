@@ -61,4 +61,34 @@ mod tests {
             Some("[embed] all-MiniLM-L6-v2".into())
         );
     }
+
+    #[test]
+    fn semantic_name_onnx_runtime_dir() {
+        assert_eq!(
+            semantic_name(&PathBuf::from("/cache/chroma/onnx")),
+            Some("ONNX Runtime".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_unrelated_returns_none() {
+        assert_eq!(semantic_name(&PathBuf::from("/cache/chroma/weights")), None);
+    }
+
+    #[test]
+    fn semantic_name_empty_path_returns_none() {
+        assert_eq!(semantic_name(&PathBuf::from("")), None);
+    }
+
+    #[test]
+    fn metadata_onnx_models_dir_has_contents_field() {
+        let fields = metadata(&PathBuf::from("/cache/chroma/onnx_models"));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].label, "Contents");
+    }
+
+    #[test]
+    fn metadata_other_returns_empty() {
+        assert!(metadata(&PathBuf::from("/cache/chroma/onnx")).is_empty());
+    }
 }

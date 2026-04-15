@@ -126,6 +126,52 @@ mod tests {
     }
 
     #[test]
+    fn hook_name_returns_none_when_no_name_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".pre-commit-hooks.yaml"),
+            "- id: solo\n  entry: x\n",
+        )
+        .unwrap();
+        assert_eq!(hook_name_from_config(&dir), None);
+    }
+
+    #[test]
+    fn hook_name_none_when_file_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(hook_name_from_config(tmp.path()), None);
+    }
+
+    #[test]
+    fn semantic_name_returns_none_when_repo_has_no_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo_bare");
+        std::fs::create_dir_all(&repo).unwrap();
+        // Not a git repo, no hooks file → both paths fail, returns None.
+        assert_eq!(semantic_name(&repo), None);
+    }
+
+    #[test]
+    fn metadata_non_repo_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("not-a-repo");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(metadata(&dir).is_empty());
+    }
+
+    #[test]
+    fn metadata_repo_adds_type_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo_abc");
+        std::fs::create_dir_all(&repo).unwrap();
+        let fields = metadata(&repo);
+        // At minimum the "Type" field is added; Remote is best-effort.
+        assert!(fields.iter().any(|f| f.label == "Type"));
+    }
+
+    #[test]
     fn hook_name_extracts_first_name() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("test");

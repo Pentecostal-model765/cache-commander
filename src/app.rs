@@ -860,3 +860,627 @@ fn find_subtree_end(nodes: &[crate::tree::node::TreeNode], idx: usize) -> usize 
     }
     end
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{SortField, VersioncheckConfig, VulncheckConfig};
+    use crate::providers::homebrew::BrewOutdatedEntry;
+    use crate::scanner::{ScanRequest, ScanResult};
+    use crate::security::{SecurityInfo, VersionInfo, Vulnerability};
+    use crate::tree::node::{CacheKind, TreeNode};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+
+    // --- helpers -----------------------------------------------------------
+
+    fn bare_config() -> Config {
+        Config {
+            roots: vec![],
+            sort_by: SortField::Size,
+            sort_desc: true,
+            confirm_delete: true,
+            vulncheck: VulncheckConfig::default(),
+            versioncheck: VersioncheckConfig::default(),
+        }
+    }
+
+    /// Build an App wired to two *local* channels so tests can push
+    /// ScanResults into it (`result_tx`) and inspect the ScanRequests it
+    /// sends (`scan_rx`). No background scanner thread is started.
+    fn build_app(config: Config) -> (App, mpsc::Sender<ScanResult>, mpsc::Receiver<ScanRequest>) {
+        let (result_tx, result_rx) = mpsc::channel::<ScanResult>();
+        let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>();
+        let app = App::new(config, result_rx, scan_tx);
+        (app, result_tx, scan_rx)
+    }
+
+    fn mk_node(name: &str, size: u64, kind: CacheKind) -> TreeNode {
+        let mut n = TreeNode::new(PathBuf::from(format!("/tmp/{name}")), 0, None);
+        n.name = name.into();
+        n.kind = kind;
+        n.size = size;
+        n.has_children = false;
+        n.children_loaded = true;
+        n
+    }
+
+    fn mk_node_with_path(name: &str, path: PathBuf, kind: CacheKind) -> TreeNode {
+        let mut n = TreeNode::new(path, 0, None);
+        n.name = name.into();
+        n.kind = kind;
+        n.size = 1024;
+        n.has_children = false;
+        n.children_loaded = true;
+        n
+    }
+
+    fn render_app(app: &mut App, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    // --- pure helpers -----------------------------------------------------
+
+    #[test]
+    fn extract_package_name_variants() {
+        assert_eq!(extract_package_name("serde"), "serde");
+        assert_eq!(extract_package_name("serde 1.0.200"), "serde");
+        assert_eq!(extract_package_name("[PyPI] requests 2.31.0"), "requests");
+        assert_eq!(extract_package_name("[broken"), "[broken");
+        assert_eq!(extract_package_name(""), "");
+    }
+
+    #[test]
+    fn find_subtree_end_linear() {
+        // Flat layout: root, child0, child1, sibling
+        let mut nodes = vec![
+            TreeNode::new(PathBuf::from("/r"), 0, None),
+            TreeNode::new(PathBuf::from("/r/a"), 1, Some(0)),
+            TreeNode::new(PathBuf::from("/r/b"), 1, Some(0)),
+            TreeNode::new(PathBuf::from("/r2"), 0, None),
+        ];
+        for n in &mut nodes {
+            n.has_children = false;
+        }
+        assert_eq!(find_subtree_end(&nodes, 0), 3);
+        assert_eq!(find_subtree_end(&nodes, 1), 2);
+        assert_eq!(find_subtree_end(&nodes, 3), 4);
+    }
+
+    #[test]
+    fn find_subtree_end_nested() {
+        // root(0) → a(1) → a.x(2) → a.x.y(3), sibling b(4)
+        let mut nodes = vec![
+            TreeNode::new(PathBuf::from("/r"), 0, None),
+            TreeNode::new(PathBuf::from("/r/a"), 1, Some(0)),
+            TreeNode::new(PathBuf::from("/r/a/x"), 2, Some(1)),
+            TreeNode::new(PathBuf::from("/r/a/x/y"), 3, Some(2)),
+            TreeNode::new(PathBuf::from("/r/b"), 1, Some(0)),
+        ];
+        for n in &mut nodes {
+            n.has_children = false;
+        }
+        assert_eq!(find_subtree_end(&nodes, 0), 5);
+        assert_eq!(find_subtree_end(&nodes, 1), 4);
+        assert_eq!(find_subtree_end(&nodes, 2), 4);
+    }
+
+    // --- App::draw render tests -------------------------------------------
+
+    #[test]
+    fn draw_renders_banner_with_size_and_root_count() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![
+            mk_node("alpha", 5 * 1024 * 1024, CacheKind::Cargo),
+            mk_node("beta", 3 * 1024 * 1024, CacheKind::Npm),
+        ]);
+        let out = render_app(&mut app, 140, 30);
+        assert!(out.contains("8 MiB"), "total size:\n{out}");
+        assert!(out.contains("2 roots"), "root count:\n{out}");
+        assert!(out.contains("sort:"), "sort label:\n{out}");
+        assert!(out.contains("help"), "help hint:\n{out}");
+        assert!(out.contains("alpha"), "tree row alpha:\n{out}");
+        assert!(out.contains("beta"));
+    }
+
+    #[test]
+    fn draw_banner_shows_scanning_when_no_sizes_yet() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree
+            .set_roots(vec![mk_node("pending", 0, CacheKind::Cargo)]);
+        let out = render_app(&mut app, 140, 30);
+        assert!(out.contains("scanning..."), "scanning placeholder:\n{out}");
+        assert!(out.contains("1 root"), "singular root:\n{out}");
+    }
+
+    #[test]
+    fn draw_banner_shows_vuln_and_outdated_counters() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node("urllib3", 1024, CacheKind::Pip);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        app.vuln_results.insert(
+            path.clone(),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        app.version_results.insert(
+            path,
+            VersionInfo {
+                current: "1.0".into(),
+                latest: "2.0".into(),
+                is_outdated: true,
+            },
+        );
+        let out = render_app(&mut app, 160, 30);
+        assert!(out.contains("1 vuln"), "vuln counter:\n{out}");
+        assert!(out.contains("1 outdated"), "outdated counter:\n{out}");
+    }
+
+    #[test]
+    fn draw_banner_shows_in_progress_indicators() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("x", 1, CacheKind::Cargo)]);
+        app.vulnscan_in_progress = true;
+        app.versioncheck_in_progress = true;
+        let out = render_app(&mut app, 160, 30);
+        assert!(out.contains("scanning..."), "vuln scanning:\n{out}");
+        assert!(out.contains("checking..."), "version checking:\n{out}");
+    }
+
+    #[test]
+    fn draw_renders_help_overlay_in_help_mode() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("a", 1, CacheKind::Cargo)]);
+        app.mode = AppMode::Help;
+        let out = render_app(&mut app, 140, 60);
+        assert!(out.contains("Help"), "help title:\n{out}");
+        assert!(out.contains("Move up"), "help content:\n{out}");
+    }
+
+    #[test]
+    fn draw_renders_delete_confirm_in_deleting_mode() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node("doomed", 4096, CacheKind::Cargo);
+        app.delete_candidates = vec![node.path.clone()];
+        app.tree.set_roots(vec![node]);
+        app.mode = AppMode::Deleting;
+        let out = render_app(&mut app, 140, 40);
+        assert!(out.contains("Delete 1 item"), "confirm dialog:\n{out}");
+        assert!(out.contains("doomed"));
+    }
+
+    #[test]
+    fn draw_bottom_bar_shows_filter_input_in_filtering_mode() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("a", 1, CacheKind::Cargo)]);
+        app.mode = AppMode::Filtering;
+        app.filter_text = "serde".into();
+        let out = render_app(&mut app, 140, 20);
+        assert!(out.contains("/"), "filter prompt:\n{out}");
+        assert!(out.contains("serde"), "filter text:\n{out}");
+    }
+
+    #[test]
+    fn draw_bottom_bar_shows_status_message_when_set() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("a", 1, CacheKind::Cargo)]);
+        app.status_msg = Some("Scanned 42 packages".into());
+        let out = render_app(&mut app, 140, 20);
+        assert!(out.contains("Scanned 42 packages"), "status msg:\n{out}");
+    }
+
+    #[test]
+    fn draw_bottom_bar_default_shows_hotkey_hints() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("a", 1, CacheKind::Cargo)]);
+        let out = render_app(&mut app, 140, 20);
+        for h in &["navigate", "expand", "mark", "delete", "sort"] {
+            assert!(out.contains(h), "missing hint '{h}':\n{out}");
+        }
+    }
+
+    // --- tick / ScanResult handling ---------------------------------------
+
+    #[test]
+    fn tick_roots_scanned_replaces_tree() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        tx.send(ScanResult::RootsScanned(vec![mk_node(
+            "r",
+            100,
+            CacheKind::Cargo,
+        )]))
+        .unwrap();
+        app.tick();
+        assert_eq!(app.tree.nodes.len(), 1);
+        assert_eq!(app.tree.nodes[0].name, "r");
+    }
+
+    #[test]
+    fn tick_size_updated_mutates_existing_node() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        let node = mk_node("r", 0, CacheKind::Cargo);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        tx.send(ScanResult::SizeUpdated(path, 9999)).unwrap();
+        app.tick();
+        assert_eq!(app.tree.nodes[0].size, 9999);
+    }
+
+    #[test]
+    fn tick_vulns_scanned_merges_and_sets_status_singular() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        let node = mk_node("urllib3", 1, CacheKind::Pip);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        let mut results = HashMap::new();
+        results.insert(
+            path.clone(),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        tx.send(ScanResult::VulnsScanned(1, results)).unwrap();
+        app.tick();
+        assert!(app.vuln_results.contains_key(&path));
+        assert!(!app.vulnscan_in_progress);
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("1 vulnerability"), "singular grammar: {msg}");
+        assert!(app.node_status.get(&path).unwrap().has_vuln);
+    }
+
+    #[test]
+    fn tick_vulns_scanned_zero_uses_clean_message() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("ok", 1, CacheKind::Cargo)]);
+        tx.send(ScanResult::VulnsScanned(5, HashMap::new()))
+            .unwrap();
+        app.tick();
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("no vulnerabilities"), "clean msg: {msg}");
+    }
+
+    #[test]
+    fn tick_versions_checked_sets_status_and_outdated_flag() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        let node = mk_node("serde", 1, CacheKind::Cargo);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        let mut results = HashMap::new();
+        results.insert(
+            path.clone(),
+            VersionInfo {
+                current: "1.0.100".into(),
+                latest: "1.0.200".into(),
+                is_outdated: true,
+            },
+        );
+        tx.send(ScanResult::VersionsChecked(1, results)).unwrap();
+        app.tick();
+        assert!(!app.versioncheck_in_progress);
+        assert_eq!(app.version_results.len(), 1);
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("1 outdated"), "outdated msg: {msg}");
+        assert!(app.node_status.get(&path).unwrap().has_outdated);
+    }
+
+    #[test]
+    fn tick_versions_checked_all_up_to_date_message() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        app.tree
+            .set_roots(vec![mk_node("serde", 1, CacheKind::Cargo)]);
+        tx.send(ScanResult::VersionsChecked(3, HashMap::new()))
+            .unwrap();
+        app.tick();
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("all up to date"), "clean msg: {msg}");
+    }
+
+    #[test]
+    fn tick_brew_outdated_sets_status_and_nodestate() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        // Node name must match how brew matching works (extract_package_name on name).
+        app.tree
+            .set_roots(vec![mk_node("wget", 1, CacheKind::Homebrew)]);
+        let mut results = HashMap::new();
+        results.insert(
+            "wget".to_string(),
+            BrewOutdatedEntry {
+                installed: "1.21".into(),
+                current: "1.24".into(),
+                pinned: false,
+            },
+        );
+        tx.send(ScanResult::BrewOutdatedCompleted(results)).unwrap();
+        app.tick();
+        assert!(!app.brew_outdated_in_progress);
+        assert_eq!(app.brew_outdated_results.len(), 1);
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("1 outdated package"), "brew msg: {msg}");
+    }
+
+    #[test]
+    fn tick_brew_outdated_zero_does_not_set_status() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        app.tree
+            .set_roots(vec![mk_node("x", 1, CacheKind::Homebrew)]);
+        tx.send(ScanResult::BrewOutdatedCompleted(HashMap::new()))
+            .unwrap();
+        app.tick();
+        assert!(app.status_msg.is_none(), "should stay silent on zero");
+    }
+
+    #[test]
+    fn tick_children_scanned_inserts_into_matching_parent() {
+        let (mut app, tx, _rx) = build_app(bare_config());
+        let mut parent = mk_node("root", 0, CacheKind::Cargo);
+        parent.has_children = true;
+        parent.children_loaded = false;
+        let parent_path = parent.path.clone();
+        app.tree.set_roots(vec![parent]);
+        let child = {
+            let mut c = TreeNode::new(parent_path.join("child"), 1, Some(0));
+            c.name = "child".into();
+            c.has_children = false;
+            c
+        };
+        tx.send(ScanResult::ChildrenScanned(parent_path, vec![child]))
+            .unwrap();
+        app.tick();
+        assert!(app.tree.nodes.iter().any(|n| n.name == "child"));
+    }
+
+    #[test]
+    fn tick_triggers_auto_vuln_and_version_when_enabled() {
+        let mut cfg = bare_config();
+        cfg.vulncheck.enabled = true;
+        cfg.versioncheck.enabled = true;
+        let (mut app, _tx, rx) = build_app(cfg);
+        app.tree.set_roots(vec![mk_node("r", 1, CacheKind::Cargo)]);
+        app.tick();
+        // The auto flags should have flipped to "in progress" and fired requests.
+        assert!(app.vulnscan_in_progress);
+        assert!(app.versioncheck_in_progress);
+        let mut saw_vuln = false;
+        let mut saw_ver = false;
+        while let Ok(req) = rx.try_recv() {
+            match req {
+                ScanRequest::ScanVulns(_) => saw_vuln = true,
+                ScanRequest::CheckVersions(_) => saw_ver = true,
+                _ => {}
+            }
+        }
+        assert!(saw_vuln && saw_ver, "both auto requests sent");
+    }
+
+    // --- perform_delete ---------------------------------------------------
+
+    #[test]
+    fn perform_delete_removes_real_files_and_updates_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_a = tmp.path().join("a.txt");
+        let file_b = tmp.path().join("b.txt");
+        std::fs::write(&file_a, b"aaaa").unwrap();
+        std::fs::write(&file_b, b"bbbb").unwrap();
+
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node_a = mk_node_with_path("a", file_a.clone(), CacheKind::Cargo);
+        let node_b = mk_node_with_path("b", file_b.clone(), CacheKind::Cargo);
+        app.tree.set_roots(vec![node_a, node_b]);
+        app.delete_candidates = vec![file_a.clone(), file_b.clone()];
+
+        app.perform_delete();
+
+        assert!(!file_a.exists(), "file_a should be gone");
+        assert!(!file_b.exists(), "file_b should be gone");
+        let msg = app.status_msg.as_deref().unwrap_or("");
+        assert!(msg.contains("Deleted 2"), "deleted status: {msg}");
+        assert!(app.delete_candidates.is_empty());
+    }
+
+    #[test]
+    fn perform_delete_removes_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("cachedir");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested/x"), b"xx").unwrap();
+
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node_with_path("cachedir", dir.clone(), CacheKind::Cargo);
+        app.tree.set_roots(vec![node]);
+        app.delete_candidates = vec![dir.clone()];
+
+        app.perform_delete();
+
+        assert!(!dir.exists(), "directory should be removed");
+        assert!(
+            app.status_msg
+                .as_deref()
+                .unwrap()
+                .contains("Deleted 1 item")
+        );
+    }
+
+    #[test]
+    fn perform_delete_no_op_on_empty_candidates_leaves_status_unchanged() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.perform_delete();
+        assert!(app.status_msg.is_none());
+    }
+
+    // --- upgrade_command_for_selected -------------------------------------
+
+    #[test]
+    fn upgrade_command_prefers_vuln_fix_version() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node("urllib3 1.26.5", 1, CacheKind::Pip);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        app.vuln_results.insert(
+            path.clone(),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: Some("1.26.17".into()),
+                }],
+            },
+        );
+        // version info points at an even newer one — vuln fix should still win.
+        app.version_results.insert(
+            path,
+            VersionInfo {
+                current: "1.26.5".into(),
+                latest: "2.0.0".into(),
+                is_outdated: true,
+            },
+        );
+        let cmd = app.upgrade_command_for_selected().expect("cmd");
+        assert!(cmd.contains("urllib3"));
+        assert!(
+            cmd.contains("1.26.17"),
+            "uses fix version, not latest: {cmd}"
+        );
+    }
+
+    #[test]
+    fn upgrade_command_falls_back_to_latest_when_no_vuln() {
+        // Use Pip because its upgrade_command template includes the version —
+        // Cargo's is `cargo update -p <name>` with no version, which wouldn't
+        // distinguish "uses latest" from "uses anything".
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node("requests 2.20.0", 1, CacheKind::Pip);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        app.version_results.insert(
+            path,
+            VersionInfo {
+                current: "2.20.0".into(),
+                latest: "2.31.0".into(),
+                is_outdated: true,
+            },
+        );
+        let cmd = app.upgrade_command_for_selected().expect("cmd");
+        assert!(cmd.contains("requests"), "pkg name: {cmd}");
+        assert!(cmd.contains("2.31.0"), "latest version: {cmd}");
+    }
+
+    #[test]
+    fn upgrade_command_none_when_clean() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree
+            .set_roots(vec![mk_node("clean", 1, CacheKind::Cargo)]);
+        assert!(app.upgrade_command_for_selected().is_none());
+    }
+
+    // --- recompute_node_status --------------------------------------------
+
+    #[test]
+    fn recompute_node_status_propagates_to_ancestors() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        // Build a 3-level tree: /r → /r/sub → /r/sub/pkg
+        let mut root = TreeNode::new(PathBuf::from("/r"), 0, None);
+        root.name = "r".into();
+        root.has_children = true;
+        let mut sub = TreeNode::new(PathBuf::from("/r/sub"), 1, Some(0));
+        sub.name = "sub".into();
+        let mut pkg = TreeNode::new(PathBuf::from("/r/sub/pkg"), 2, Some(1));
+        pkg.name = "pkg".into();
+
+        app.tree.nodes = vec![root, sub, pkg];
+        app.vuln_results.insert(
+            PathBuf::from("/r/sub/pkg"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+
+        app.recompute_node_status();
+
+        // Ancestor propagation: /r/sub, /r, and / should all inherit has_vuln.
+        assert!(
+            app.node_status
+                .get(&PathBuf::from("/r/sub/pkg"))
+                .unwrap()
+                .has_vuln
+        );
+        assert!(
+            app.node_status
+                .get(&PathBuf::from("/r/sub"))
+                .unwrap()
+                .has_vuln
+        );
+        assert!(app.node_status.get(&PathBuf::from("/r")).unwrap().has_vuln);
+    }
+
+    #[test]
+    fn recompute_node_status_matches_brew_by_semantic_name() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        let node = mk_node("wget 1.21", 1, CacheKind::Homebrew);
+        let path = node.path.clone();
+        app.tree.set_roots(vec![node]);
+        app.brew_outdated_results.insert(
+            "wget".into(),
+            BrewOutdatedEntry {
+                installed: "1.21".into(),
+                current: "1.24".into(),
+                pinned: false,
+            },
+        );
+
+        app.recompute_node_status();
+
+        assert!(
+            app.node_status.get(&path).unwrap().has_outdated,
+            "wget node should be flagged outdated via brew match"
+        );
+    }
+
+    #[test]
+    fn recompute_node_status_clears_previous() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("x", 1, CacheKind::Cargo)]);
+        app.node_status.insert(
+            PathBuf::from("/stale/path"),
+            crate::security::NodeStatus {
+                has_vuln: true,
+                has_outdated: true,
+            },
+        );
+        app.recompute_node_status();
+        assert!(
+            !app.node_status.contains_key(&PathBuf::from("/stale/path")),
+            "stale entries must be cleared"
+        );
+    }
+}

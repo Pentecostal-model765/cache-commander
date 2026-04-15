@@ -67,4 +67,48 @@ mod tests {
         let path = PathBuf::from("/cache/prisma/master/abc123/darwin-arm64");
         assert_eq!(semantic_name(&path), Some("[platform] darwin-arm64".into()));
     }
+
+    #[test]
+    fn semantic_name_main_branch() {
+        assert_eq!(
+            semantic_name(&PathBuf::from("/cache/prisma/main")),
+            Some("[branch] main".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_linux_platform() {
+        assert_eq!(
+            semantic_name(&PathBuf::from("/x/linux-musl-arm64")),
+            Some("[platform] linux-musl-arm64".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_windows_platform() {
+        assert_eq!(
+            semantic_name(&PathBuf::from("/x/windows-x64")),
+            Some("[platform] windows-x64".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_unrelated_returns_none() {
+        assert_eq!(semantic_name(&PathBuf::from("/cache/prisma/readme")), None);
+    }
+
+    #[test]
+    fn metadata_commit_hash_dir_has_type_and_commit_fields() {
+        let hash = "0c8ef2ce45c83248ab3df073180d5eda9e8be7a3";
+        let fields = metadata(&PathBuf::from(format!("/x/{hash}")));
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].label, "Type");
+        assert_eq!(fields[1].label, "Commit");
+        assert_eq!(fields[1].value, hash);
+    }
+
+    #[test]
+    fn metadata_non_commit_dir_returns_empty() {
+        assert!(metadata(&PathBuf::from("/cache/prisma/main")).is_empty());
+    }
 }

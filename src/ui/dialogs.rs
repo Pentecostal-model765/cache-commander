@@ -156,3 +156,136 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .flex(Flex::Center)
         .split(vertical[0])[0]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::node::{CacheKind, TreeNode};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use std::path::PathBuf;
+
+    fn make_node(name: &str, kind: CacheKind, size: u64) -> TreeNode {
+        let mut n = TreeNode::new(PathBuf::from(format!("/tmp/{name}")), 0, None);
+        n.name = name.into();
+        n.kind = kind;
+        n.size = size;
+        n
+    }
+
+    fn render_dialog<F>(draw: F) -> String
+    where
+        F: FnOnce(&mut Frame),
+    {
+        let backend = TestBackend::new(100, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn delete_confirm_single_item_uses_singular_title_and_all_safe() {
+        let node = make_node("serde 1.0.200", CacheKind::Cargo, 1024 * 1024);
+        let out = render_dialog(|f| render_delete_confirm(f, &[&node]));
+        assert!(out.contains("Delete 1 item?"), "singular title:\n{out}");
+        assert!(out.contains("serde 1.0.200"), "item name:\n{out}");
+        assert!(out.contains("1 MiB"), "item size:\n{out}");
+        assert!(out.contains("Total:"), "total line:\n{out}");
+        assert!(out.contains("safe to delete"), "safe badge:\n{out}");
+        assert!(out.contains("[y]"), "y key:\n{out}");
+        assert!(out.contains("[n]"), "n key:\n{out}");
+        assert!(
+            !out.contains("and "),
+            "single item should not show 'and N more':\n{out}"
+        );
+    }
+
+    #[test]
+    fn delete_confirm_plural_title_and_total_freed() {
+        let a = make_node("a", CacheKind::Cargo, 1024 * 1024);
+        let b = make_node("b", CacheKind::Npm, 2 * 1024 * 1024);
+        let out = render_dialog(|f| render_delete_confirm(f, &[&a, &b]));
+        assert!(out.contains("Delete 2 items?"), "plural title:\n{out}");
+        assert!(out.contains("3 MiB"), "summed total:\n{out}");
+    }
+
+    #[test]
+    fn delete_confirm_truncates_to_ten_and_shows_more() {
+        let nodes: Vec<TreeNode> = (0..15)
+            .map(|i| make_node(&format!("pkg-{i}"), CacheKind::Cargo, 1024))
+            .collect();
+        let refs: Vec<&TreeNode> = nodes.iter().collect();
+        let out = render_dialog(|f| render_delete_confirm(f, &refs));
+        assert!(out.contains("Delete 15 items?"));
+        assert!(out.contains("pkg-0"), "first shown:\n{out}");
+        assert!(out.contains("pkg-9"), "tenth shown:\n{out}");
+        assert!(
+            !out.contains("pkg-10"),
+            "eleventh must not appear in first-10 list:\n{out}"
+        );
+        assert!(out.contains("and 5 more"), "overflow hint:\n{out}");
+    }
+
+    #[test]
+    fn delete_confirm_unknown_kind_shows_caution_summary() {
+        let node = make_node("mystery", CacheKind::Unknown, 1024);
+        let out = render_dialog(|f| render_delete_confirm(f, &[&node]));
+        assert!(
+            out.contains("unknown safety"),
+            "expected caution banner:\n{out}"
+        );
+        assert!(
+            !out.contains("All items are safe"),
+            "should not claim safety:\n{out}"
+        );
+    }
+
+    #[test]
+    fn help_dialog_lists_all_keybindings_and_author() {
+        // Use a tall terminal so the 70%-height centered dialog fits the full
+        // keybinding list + author credit without ratatui clipping the bottom.
+        let backend = TestBackend::new(120, 60);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(render_help).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        assert!(out.contains("Help"), "title:\n{out}");
+        for k in &[
+            "↑/k", "↓/j", "g", "G", "Space", "d/D", "/", "v", "V", "o", "O", "?", "q",
+        ] {
+            assert!(out.contains(k), "missing key {k}:\n{out}");
+        }
+        for d in &["Move up", "Move down", "Jump to top", "Quit"] {
+            assert!(out.contains(d), "missing desc {d}:\n{out}");
+        }
+        assert!(out.contains("Julien Simon"), "author credit:\n{out}");
+        assert!(
+            out.contains("github.com/juliensimon/cache-commander"),
+            "repo link:\n{out}"
+        );
+    }
+
+    #[test]
+    fn centered_rect_is_centered_and_smaller() {
+        let area = Rect::new(0, 0, 100, 40);
+        let r = centered_rect(50, 40, area);
+        assert_eq!(r.width, 50);
+        assert_eq!(r.height, 16);
+        assert_eq!(r.x, 25); // (100-50)/2
+        assert_eq!(r.y, 12); // (40-16)/2
+    }
+}
