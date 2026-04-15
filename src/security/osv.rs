@@ -48,10 +48,16 @@ pub fn build_query(packages: &[crate::providers::PackageId]) -> String {
     serde_json::json!({ "queries": queries }).to_string()
 }
 
+pub const OSV_BATCH_URL: &str = "https://api.osv.dev/v1/querybatch";
+
+pub fn build_vuln_detail_url(vuln_id: &str) -> String {
+    format!("https://api.osv.dev/v1/vulns/{}", vuln_id)
+}
+
 pub fn query_osv(packages: &[crate::providers::PackageId]) -> Result<OsvResponse, String> {
     let body = build_query(packages);
     let resp = ureq::agent()
-        .post("https://api.osv.dev/v1/querybatch")
+        .post(OSV_BATCH_URL)
         .timeout(std::time::Duration::from_secs(30))
         .set("Content-Type", "application/json")
         .set(
@@ -194,7 +200,7 @@ pub fn version_lte(a: &str, b: &str) -> bool {
 }
 
 pub fn fetch_vuln_detail(vuln_id: &str) -> Result<OsvVulnDetail, String> {
-    let url = format!("https://api.osv.dev/v1/vulns/{}", vuln_id);
+    let url = build_vuln_detail_url(vuln_id);
     let resp = ureq::agent()
         .get(&url)
         .timeout(std::time::Duration::from_secs(15))
@@ -216,6 +222,23 @@ pub fn fetch_vuln_detail(vuln_id: &str) -> Result<OsvVulnDetail, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn osv_batch_url_constant() {
+        assert_eq!(OSV_BATCH_URL, "https://api.osv.dev/v1/querybatch");
+    }
+
+    #[test]
+    fn build_vuln_detail_url_formats_correctly() {
+        assert_eq!(
+            build_vuln_detail_url("CVE-2023-1234"),
+            "https://api.osv.dev/v1/vulns/CVE-2023-1234"
+        );
+        assert_eq!(
+            build_vuln_detail_url("GHSA-abcd-efgh-ijkl"),
+            "https://api.osv.dev/v1/vulns/GHSA-abcd-efgh-ijkl"
+        );
+    }
 
     #[test]
     fn parse_empty_response() {

@@ -1010,4 +1010,37 @@ mod tests {
             None
         );
     }
+
+    /// Dispatch every CacheKind through semantic_name/metadata/package_id with
+    /// a path that won't actually match — we only want the match arms covered.
+    /// Each arm must at minimum not panic.
+    #[test]
+    fn dispatch_all_kinds_through_semantic_metadata_package_id() {
+        let dummy = PathBuf::from("/nonexistent/dummy/path");
+        let all = [
+            CacheKind::HuggingFace,
+            CacheKind::Pip,
+            CacheKind::Uv,
+            CacheKind::Npm,
+            CacheKind::Homebrew,
+            CacheKind::Cargo,
+            CacheKind::PreCommit,
+            CacheKind::Whisper,
+            CacheKind::Gh,
+            CacheKind::Torch,
+            CacheKind::Chroma,
+            CacheKind::Prisma,
+            CacheKind::Yarn,
+            CacheKind::Pnpm,
+            CacheKind::Bun,
+            CacheKind::Unknown,
+        ];
+        for kind in &all {
+            // Just exercise the dispatch arms — the return values aren't asserted
+            // because each provider has its own tests for correctness.
+            let _ = semantic_name(*kind, &dummy);
+            let _ = metadata(*kind, &dummy);
+            let _ = package_id(*kind, &dummy);
+        }
+    }
 }

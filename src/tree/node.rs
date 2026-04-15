@@ -215,6 +215,48 @@ mod tests {
     }
 
     #[test]
+    fn cache_kind_every_variant_has_label_description_and_url() {
+        // Exhaustive list — every new CacheKind variant should be added here so
+        // its match arms in label/description/url are covered.
+        let all = [
+            CacheKind::HuggingFace,
+            CacheKind::Pip,
+            CacheKind::Uv,
+            CacheKind::Npm,
+            CacheKind::Homebrew,
+            CacheKind::Cargo,
+            CacheKind::PreCommit,
+            CacheKind::Whisper,
+            CacheKind::Gh,
+            CacheKind::Torch,
+            CacheKind::Chroma,
+            CacheKind::Prisma,
+            CacheKind::Yarn,
+            CacheKind::Pnpm,
+            CacheKind::Bun,
+        ];
+        for kind in &all {
+            assert!(!kind.label().is_empty(), "{:?} label empty", kind);
+            assert!(
+                !kind.description().is_empty(),
+                "{:?} description empty",
+                kind
+            );
+            let url = kind.url();
+            assert!(!url.is_empty(), "{:?} url empty", kind);
+            assert!(
+                url.starts_with("http"),
+                "{:?} url should start with http(s), got {url}",
+                kind
+            );
+        }
+        // Unknown intentionally empty
+        assert_eq!(CacheKind::Unknown.label(), "");
+        assert_eq!(CacheKind::Unknown.description(), "");
+        assert_eq!(CacheKind::Unknown.url(), "");
+    }
+
+    #[test]
     fn cache_kind_pnpm_has_label() {
         assert_eq!(CacheKind::Pnpm.label(), "pnpm");
         assert!(!CacheKind::Pnpm.description().is_empty());

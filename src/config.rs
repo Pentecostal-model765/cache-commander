@@ -555,23 +555,65 @@ mod tests {
     }
 
     #[test]
+    fn run_with_timeout_missing_program_returns_none() {
+        // Spawning a program that definitely doesn't exist should return None,
+        // not panic. This covers the ok()? branch at the top of run_with_timeout.
+        let out = run_with_timeout("ccmd-nonexistent-binary-xyz-9876", &["--version"]);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn run_with_timeout_fast_program_returns_output() {
+        // `true` exits immediately with success, exercising the Ok(Some(_)) path.
+        if let Some(output) = run_with_timeout("true", &[]) {
+            assert!(output.status.success());
+        }
+    }
+
+    #[test]
+    fn probe_bun_respects_env_var_when_dir_exists() {
+        // Use a temp dir so we actually hit the early-return branch that
+        // BUN_INSTALL_CACHE_DIR points at an existing dir.
+        let tmp = std::env::temp_dir().join(format!("ccmd-bun-test-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // Ensure BUN_INSTALL doesn't interfere
+        // SAFETY: tests are serial within a single process for this env var usage.
+        unsafe {
+            std::env::set_var("BUN_INSTALL_CACHE_DIR", &tmp);
+            std::env::remove_var("BUN_INSTALL");
+        }
+        let paths = probe_bun_paths();
+        unsafe {
+            std::env::remove_var("BUN_INSTALL_CACHE_DIR");
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(paths.iter().any(|p| p == &tmp));
+    }
+
+    #[test]
     fn probe_yarn_cache_handles_missing_tool() {
-        // yarn may not be installed — just verify no panic
+        // yarn may or may not be installed. Either way, every returned path
+        // must be absolute so we never feed a relative path to the scanner.
         let paths = probe_yarn_paths();
-        let _ = paths;
+        for p in &paths {
+            assert!(p.is_absolute(), "probe_yarn_paths returned relative: {p:?}");
+        }
     }
 
     #[test]
     fn probe_pnpm_cache_handles_missing_tool() {
         let paths = probe_pnpm_paths();
-        let _ = paths;
+        for p in &paths {
+            assert!(p.is_absolute(), "probe_pnpm_paths returned relative: {p:?}");
+        }
     }
 
     #[test]
     fn probe_bun_cache_handles_missing_install() {
-        // Bun may not be installed — just verify no panic
         let paths = probe_bun_paths();
-        let _ = paths;
+        for p in &paths {
+            assert!(p.is_absolute(), "probe_bun_paths returned relative: {p:?}");
+        }
     }
 
     #[test]

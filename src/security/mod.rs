@@ -39,6 +39,69 @@ fn is_vuln_active(fix_version: &Option<String>, pkg_version: &str) -> bool {
     }
 }
 
+/// Convert a single OSV batch response chunk into SecurityInfo entries, returning
+/// the entries and the set of vuln IDs whose details still need fetching.
+///
+/// Pure function — no I/O. Extracted so scan_vulns' non-network logic is testable.
+fn process_osv_response(
+    chunk: &[(PathBuf, PackageId)],
+    response: &osv::OsvResponse,
+    vuln_ids_to_fetch: &mut Vec<String>,
+) -> Vec<(PathBuf, SecurityInfo)> {
+    let mut out = Vec::new();
+    for (i, query_result) in response.results.iter().enumerate() {
+        if i >= chunk.len() {
+            break;
+        }
+        if query_result.vulns.is_empty() {
+            continue;
+        }
+        let vulns: Vec<Vulnerability> = query_result
+            .vulns
+            .iter()
+            .map(|v| {
+                if !vuln_ids_to_fetch.contains(&v.id) {
+                    vuln_ids_to_fetch.push(v.id.clone());
+                }
+                Vulnerability {
+                    id: v.id.clone(),
+                    summary: v.summary.clone().unwrap_or_default(),
+                    severity: v.severity.first().map(|s| s.score.clone()),
+                    fix_version: None,
+                }
+            })
+            .collect();
+        out.push((chunk[i].0.clone(), SecurityInfo { vulns }));
+    }
+    out
+}
+
+/// Backfill fix versions from the detail cache and drop vulns whose fix is
+/// already <= installed version. Mutates `results` in place and removes
+/// entries whose vulns are all filtered out.
+///
+/// Pure function — no I/O.
+fn backfill_and_filter_vulns(
+    results: &mut HashMap<PathBuf, SecurityInfo>,
+    packages: &[(PathBuf, PackageId)],
+    detail_cache: &HashMap<String, osv::OsvVulnDetail>,
+) {
+    for (path, info) in results.iter_mut() {
+        let pkg = packages.iter().find(|(p, _)| p == path).map(|(_, id)| id);
+        if let Some(pkg) = pkg {
+            for vuln in &mut info.vulns {
+                if let Some(detail) = detail_cache.get(&vuln.id) {
+                    vuln.fix_version =
+                        osv::extract_fix_version(detail, &pkg.name, pkg.ecosystem, &pkg.version);
+                }
+            }
+            info.vulns
+                .retain(|vuln| is_vuln_active(&vuln.fix_version, &pkg.version));
+        }
+    }
+    results.retain(|_, info| !info.vulns.is_empty());
+}
+
 pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, SecurityInfo> {
     let mut results = HashMap::new();
     if packages.is_empty() {
@@ -58,50 +121,13 @@ pub fn scan_vulns(packages: &[(PathBuf, PackageId)]) -> HashMap<PathBuf, Securit
             }
         };
 
-        for (i, query_result) in response.results.iter().enumerate() {
-            if i >= chunk.len() {
-                break;
-            }
-            if !query_result.vulns.is_empty() {
-                let vulns: Vec<Vulnerability> = query_result
-                    .vulns
-                    .iter()
-                    .map(|v| {
-                        if !vuln_ids_to_fetch.contains(&v.id) {
-                            vuln_ids_to_fetch.push(v.id.clone());
-                        }
-                        Vulnerability {
-                            id: v.id.clone(),
-                            summary: v.summary.clone().unwrap_or_default(),
-                            severity: v.severity.first().map(|s| s.score.clone()),
-                            fix_version: None,
-                        }
-                    })
-                    .collect();
-                results.insert(chunk[i].0.clone(), SecurityInfo { vulns });
-            }
+        for (path, info) in process_osv_response(chunk, &response, &mut vuln_ids_to_fetch) {
+            results.insert(path, info);
         }
     }
 
-    // Fetch fix versions from detail endpoint
     let detail_cache = fetch_fix_versions(&vuln_ids_to_fetch);
-
-    // Backfill fix_version and filter out vulns already fixed by installed version
-    for (path, info) in results.iter_mut() {
-        let pkg = packages.iter().find(|(p, _)| p == path).map(|(_, id)| id);
-        if let Some(pkg) = pkg {
-            for vuln in &mut info.vulns {
-                if let Some(detail) = detail_cache.get(&vuln.id) {
-                    vuln.fix_version =
-                        osv::extract_fix_version(detail, &pkg.name, pkg.ecosystem, &pkg.version);
-                }
-            }
-            info.vulns
-                .retain(|vuln| is_vuln_active(&vuln.fix_version, &pkg.version));
-        }
-    }
-    results.retain(|_, info| !info.vulns.is_empty());
-
+    backfill_and_filter_vulns(&mut results, packages, &detail_cache);
     results
 }
 
@@ -235,6 +261,247 @@ mod tests {
             results.is_empty(),
             "Entry should be removed when all vulns filtered"
         );
+    }
+
+    #[test]
+    fn scan_vulns_empty_input_returns_empty_map_without_network() {
+        // Early-return path — must not attempt any network call.
+        let out = scan_vulns(&[]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn check_versions_empty_input_returns_empty_map_without_network() {
+        let out = check_versions(&[]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn fetch_fix_versions_empty_ids_returns_empty_map_without_network() {
+        let out = fetch_fix_versions(&[]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn vulnerability_struct_clone_roundtrip() {
+        // Exercises #[derive(Clone)] on the public types so they count toward
+        // line coverage (they're currently only built at call sites that the
+        // offline test suite doesn't reach).
+        let v = Vulnerability {
+            id: "CVE-1".into(),
+            summary: "s".into(),
+            severity: Some("HIGH".into()),
+            fix_version: Some("1.0.0".into()),
+        };
+        let cloned = v.clone();
+        assert_eq!(cloned.id, "CVE-1");
+        let info = SecurityInfo {
+            vulns: vec![cloned],
+        };
+        assert_eq!(info.clone().vulns.len(), 1);
+        let ver = VersionInfo {
+            current: "1".into(),
+            latest: "2".into(),
+            is_outdated: true,
+        };
+        assert!(ver.clone().is_outdated);
+        let st = NodeStatus::default();
+        let _ = st.clone();
+    }
+
+    fn pkg(name: &str, version: &str) -> PackageId {
+        PackageId {
+            ecosystem: "PyPI",
+            name: name.to_string(),
+            version: version.to_string(),
+        }
+    }
+
+    #[test]
+    fn process_osv_response_populates_results_and_ids() {
+        let chunk = vec![
+            (PathBuf::from("/a"), pkg("requests", "2.31.0")),
+            (PathBuf::from("/b"), pkg("flask", "2.0.0")),
+        ];
+        let json = r#"{"results":[
+            {"vulns":[{"id":"CVE-1","summary":"bad","severity":[{"type":"CVSS_V3","score":"7.5"}]}]},
+            {"vulns":[]}
+        ]}"#;
+        let response = osv::parse_response(json).unwrap();
+        let mut ids = Vec::new();
+        let out = process_osv_response(&chunk, &response, &mut ids);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0, PathBuf::from("/a"));
+        assert_eq!(out[0].1.vulns.len(), 1);
+        assert_eq!(out[0].1.vulns[0].id, "CVE-1");
+        assert_eq!(out[0].1.vulns[0].summary, "bad");
+        assert_eq!(out[0].1.vulns[0].severity.as_deref(), Some("7.5"));
+        assert!(out[0].1.vulns[0].fix_version.is_none());
+        assert_eq!(ids, vec!["CVE-1".to_string()]);
+    }
+
+    #[test]
+    fn process_osv_response_dedups_vuln_ids() {
+        let chunk = vec![
+            (PathBuf::from("/a"), pkg("p1", "1.0")),
+            (PathBuf::from("/b"), pkg("p2", "1.0")),
+        ];
+        // Both packages have the same CVE — ID should only appear once
+        let json = r#"{"results":[
+            {"vulns":[{"id":"CVE-shared"}]},
+            {"vulns":[{"id":"CVE-shared"}]}
+        ]}"#;
+        let response = osv::parse_response(json).unwrap();
+        let mut ids = Vec::new();
+        let out = process_osv_response(&chunk, &response, &mut ids);
+        assert_eq!(out.len(), 2);
+        assert_eq!(ids, vec!["CVE-shared".to_string()]);
+    }
+
+    #[test]
+    fn process_osv_response_stops_at_chunk_length() {
+        // Defensive: if OSV returns more results than we sent, extra results are dropped.
+        let chunk = vec![(PathBuf::from("/a"), pkg("p", "1.0"))];
+        let json = r#"{"results":[
+            {"vulns":[{"id":"CVE-1"}]},
+            {"vulns":[{"id":"CVE-2"}]}
+        ]}"#;
+        let response = osv::parse_response(json).unwrap();
+        let mut ids = Vec::new();
+        let out = process_osv_response(&chunk, &response, &mut ids);
+        assert_eq!(out.len(), 1);
+        assert_eq!(ids, vec!["CVE-1".to_string()]);
+    }
+
+    #[test]
+    fn process_osv_response_handles_missing_summary() {
+        let chunk = vec![(PathBuf::from("/a"), pkg("p", "1.0"))];
+        let json = r#"{"results":[{"vulns":[{"id":"CVE-1"}]}]}"#;
+        let response = osv::parse_response(json).unwrap();
+        let mut ids = Vec::new();
+        let out = process_osv_response(&chunk, &response, &mut ids);
+        assert_eq!(out[0].1.vulns[0].summary, "");
+        assert!(out[0].1.vulns[0].severity.is_none());
+    }
+
+    #[test]
+    fn backfill_and_filter_extracts_fix_and_retains_active() {
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/a"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "x".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        let packages = vec![(PathBuf::from("/a"), pkg("requests", "2.31.0"))];
+
+        let detail_json = r#"{
+            "id": "CVE-1",
+            "affected": [{
+                "package": {"name": "requests", "ecosystem": "PyPI"},
+                "ranges": [{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"2.32.0"}]}]
+            }]
+        }"#;
+        let mut detail_cache = HashMap::new();
+        detail_cache.insert(
+            "CVE-1".to_string(),
+            osv::parse_vuln_detail(detail_json).unwrap(),
+        );
+
+        backfill_and_filter_vulns(&mut results, &packages, &detail_cache);
+
+        assert_eq!(results.len(), 1);
+        let info = results.get(&PathBuf::from("/a")).unwrap();
+        assert_eq!(info.vulns[0].fix_version.as_deref(), Some("2.32.0"));
+    }
+
+    #[test]
+    fn backfill_and_filter_drops_entry_when_installed_already_fixed() {
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/a"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "x".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        // Installed version 2.32.5 is past the fix 2.32.0 → entry should be removed
+        let packages = vec![(PathBuf::from("/a"), pkg("requests", "2.32.5"))];
+
+        let detail_json = r#"{
+            "id": "CVE-1",
+            "affected": [{
+                "package": {"name": "requests", "ecosystem": "PyPI"},
+                "ranges": [{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"2.32.0"}]}]
+            }]
+        }"#;
+        let mut detail_cache = HashMap::new();
+        detail_cache.insert(
+            "CVE-1".to_string(),
+            osv::parse_vuln_detail(detail_json).unwrap(),
+        );
+
+        backfill_and_filter_vulns(&mut results, &packages, &detail_cache);
+        assert!(results.is_empty(), "fixed vuln should remove entry");
+    }
+
+    #[test]
+    fn backfill_and_filter_keeps_vuln_when_no_detail_available() {
+        // When detail_cache has no entry for a vuln ID, we leave fix_version None
+        // and is_vuln_active returns true (assume still affected).
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/a"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-unknown".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        let packages = vec![(PathBuf::from("/a"), pkg("p", "1.0"))];
+        let detail_cache: HashMap<String, osv::OsvVulnDetail> = HashMap::new();
+        backfill_and_filter_vulns(&mut results, &packages, &detail_cache);
+        assert_eq!(results.len(), 1);
+        assert!(
+            results.get(&PathBuf::from("/a")).unwrap().vulns[0]
+                .fix_version
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn backfill_and_filter_skips_entries_without_matching_package() {
+        // If an entry's path doesn't appear in `packages`, we leave it alone.
+        let mut results = HashMap::new();
+        results.insert(
+            PathBuf::from("/orphan"),
+            SecurityInfo {
+                vulns: vec![Vulnerability {
+                    id: "CVE-1".into(),
+                    summary: "".into(),
+                    severity: None,
+                    fix_version: None,
+                }],
+            },
+        );
+        let packages: Vec<(PathBuf, PackageId)> = vec![];
+        let detail_cache: HashMap<String, osv::OsvVulnDetail> = HashMap::new();
+        backfill_and_filter_vulns(&mut results, &packages, &detail_cache);
+        // Orphan entry retained (not in packages → loop body skipped, retain preserves)
+        assert_eq!(results.len(), 1);
     }
 
     #[test]

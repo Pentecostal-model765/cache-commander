@@ -22,12 +22,30 @@ pub fn parse_npm_latest(json: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Build the registry URL for a given package, or `None` if the ecosystem is unsupported.
+pub fn build_registry_url(pkg: &crate::providers::PackageId) -> Option<String> {
+    match pkg.ecosystem {
+        "PyPI" => Some(format!("https://pypi.org/pypi/{}/json", pkg.name)),
+        "crates.io" => Some(format!("https://crates.io/api/v1/crates/{}", pkg.name)),
+        "npm" => Some(format!("https://registry.npmjs.org/{}/latest", pkg.name)),
+        _ => None,
+    }
+}
+
+/// Parse the registry JSON response for the given ecosystem.
+pub fn parse_registry_response(ecosystem: &str, body: &str) -> Option<String> {
+    match ecosystem {
+        "PyPI" => parse_pypi_latest(body),
+        "crates.io" => parse_crates_io_latest(body),
+        "npm" => parse_npm_latest(body),
+        _ => None,
+    }
+}
+
 pub fn check_latest(pkg: &crate::providers::PackageId) -> Result<Option<String>, String> {
-    let url = match pkg.ecosystem {
-        "PyPI" => format!("https://pypi.org/pypi/{}/json", pkg.name),
-        "crates.io" => format!("https://crates.io/api/v1/crates/{}", pkg.name),
-        "npm" => format!("https://registry.npmjs.org/{}/latest", pkg.name),
-        _ => return Ok(None),
+    let url = match build_registry_url(pkg) {
+        Some(u) => u,
+        None => return Ok(None),
     };
 
     let resp = ureq::agent()
@@ -46,13 +64,7 @@ pub fn check_latest(pkg: &crate::providers::PackageId) -> Result<Option<String>,
         .into_string()
         .map_err(|e| format!("Registry read failed: {e}"))?;
 
-    let latest = match pkg.ecosystem {
-        "PyPI" => parse_pypi_latest(&text),
-        "crates.io" => parse_crates_io_latest(&text),
-        "npm" => parse_npm_latest(&text),
-        _ => None,
-    };
-    Ok(latest)
+    Ok(parse_registry_response(pkg.ecosystem, &text))
 }
 
 #[cfg(test)]
@@ -114,6 +126,61 @@ mod tests {
     #[test]
     fn parse_pypi_empty_version() {
         assert_eq!(parse_pypi_latest(r#"{"info": {"version": ""}}"#), None);
+    }
+
+    fn pkg(ecosystem: &'static str, name: &str) -> crate::providers::PackageId {
+        crate::providers::PackageId {
+            ecosystem,
+            name: name.to_string(),
+            version: "1.0.0".to_string(),
+        }
+    }
+
+    #[test]
+    fn build_registry_url_pypi() {
+        assert_eq!(
+            build_registry_url(&pkg("PyPI", "requests")),
+            Some("https://pypi.org/pypi/requests/json".to_string())
+        );
+    }
+
+    #[test]
+    fn build_registry_url_crates_io() {
+        assert_eq!(
+            build_registry_url(&pkg("crates.io", "serde")),
+            Some("https://crates.io/api/v1/crates/serde".to_string())
+        );
+    }
+
+    #[test]
+    fn build_registry_url_npm() {
+        assert_eq!(
+            build_registry_url(&pkg("npm", "lodash")),
+            Some("https://registry.npmjs.org/lodash/latest".to_string())
+        );
+    }
+
+    #[test]
+    fn build_registry_url_unknown_ecosystem_returns_none() {
+        assert_eq!(build_registry_url(&pkg("Homebrew", "whatever")), None);
+        assert_eq!(build_registry_url(&pkg("", "whatever")), None);
+    }
+
+    #[test]
+    fn parse_registry_response_dispatches_by_ecosystem() {
+        assert_eq!(
+            parse_registry_response("PyPI", r#"{"info":{"version":"1.2.3"}}"#),
+            Some("1.2.3".to_string())
+        );
+        assert_eq!(
+            parse_registry_response("crates.io", r#"{"crate":{"max_version":"0.5.0"}}"#),
+            Some("0.5.0".to_string())
+        );
+        assert_eq!(
+            parse_registry_response("npm", r#"{"version":"9.9.9"}"#),
+            Some("9.9.9".to_string())
+        );
+        assert_eq!(parse_registry_response("unknown", r#"{}"#), None);
     }
 
     #[test]

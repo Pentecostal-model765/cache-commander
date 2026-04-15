@@ -62,6 +62,43 @@ jobs:
         with:
           command: check advisories licenses bans sources
 
+  coverage:
+    name: Coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@0c7a94999971db56e9df89df226240aab222e776 # v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Generate coverage (lcov + summary)
+        run: |
+          cargo llvm-cov --features mcp \
+            --workspace \
+            --lcov --output-path lcov.info \
+            --ignore-filename-regex '(tests/|target/)' \
+            --summary-only | tee coverage-summary.txt
+      - name: Upload lcov artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lcov
+          path: lcov.info
+          if-no-files-found: error
+      - name: Upload summary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt
+          if-no-files-found: error
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+
   e2e-js-providers:
     name: E2E JS Provider Tests
     runs-on: ubuntu-latest
