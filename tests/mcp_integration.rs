@@ -36,19 +36,18 @@ fn read_response(stdout: &mut BufReader<impl Read>) -> serde_json::Value {
     serde_json::from_str(&line).unwrap()
 }
 
+/// Path to the integration-test binary. Cargo sets `CARGO_BIN_EXE_<name>`
+/// at compile time to the exact binary this test crate was built against,
+/// which works under --release, cross-targets, and arbitrary cwd.
+fn ccmd_binary() -> &'static str {
+    env!("CARGO_BIN_EXE_ccmd")
+}
+
 #[test]
 fn mcp_server_responds_to_initialize() {
-    // Build first
-    let status = Command::new("cargo")
-        .args(["build", "--features", "mcp"])
-        .status()
-        .expect("failed to build");
-    assert!(status.success());
+    let binary = ccmd_binary();
 
-    // Find the binary
-    let binary = std::env::current_dir().unwrap().join("target/debug/ccmd");
-
-    let mut child = Command::new(&binary)
+    let mut child = Command::new(binary)
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -187,8 +186,8 @@ fn setup_test_env() -> TempDir {
 /// Start the MCP server with `--root`, complete the handshake, and return
 /// (child, stdin, buffered stdout) ready for tool calls.
 fn start_server(root: &Path) -> (std::process::Child, impl Write, BufReader<impl Read>) {
-    let binary = std::env::current_dir().unwrap().join("target/debug/ccmd");
-    let mut child = Command::new(&binary)
+    let binary = ccmd_binary();
+    let mut child = Command::new(binary)
         .arg("--root")
         .arg(root)
         .arg("mcp")
