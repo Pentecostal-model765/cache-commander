@@ -5,6 +5,13 @@ use crate::tree::node::TreeNode;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(u64::MAX)
+}
+
 pub enum ScanRequest {
     ScanRoots(Vec<PathBuf>),
     ExpandNode(PathBuf),
@@ -92,7 +99,22 @@ pub fn start(result_tx: mpsc::Sender<ScanResult>) -> mpsc::Sender<ScanRequest> {
                     std::thread::spawn(move || {
                         let packages = discover_packages(&roots);
                         let count = packages.len();
-                        let outcome = crate::security::scan_vulns(&packages);
+                        // Load the on-disk cache (24h TTL) so unchanged
+                        // packages skip the OSV network round-trip. A save
+                        // failure here is non-fatal — we still surface results.
+                        let path = crate::security::cache::default_paths().map(|(v, _)| v);
+                        let outcome = match path.as_deref() {
+                            Some(p) => {
+                                let mut c = crate::security::cache::VulnCache::load(p);
+                                let out = crate::security::scan_vulns_with_cache(&packages, &mut c);
+                                c.prune_expired(now_secs());
+                                if let Err(e) = c.save(p) {
+                                    eprintln!("warning: could not save vuln cache: {e}");
+                                }
+                                out
+                            }
+                            None => crate::security::scan_vulns(&packages),
+                        };
                         let _ = tx.send(ScanResult::VulnsScanned(count, outcome));
                     });
                 }
@@ -101,7 +123,20 @@ pub fn start(result_tx: mpsc::Sender<ScanResult>) -> mpsc::Sender<ScanRequest> {
                     std::thread::spawn(move || {
                         let packages = discover_packages(&roots);
                         let count = packages.len();
-                        let outcome = crate::security::check_versions(&packages);
+                        let path = crate::security::cache::default_paths().map(|(_, v)| v);
+                        let outcome = match path.as_deref() {
+                            Some(p) => {
+                                let mut c = crate::security::cache::VersionCache::load(p);
+                                let out =
+                                    crate::security::check_versions_with_cache(&packages, &mut c);
+                                c.prune_expired(now_secs());
+                                if let Err(e) = c.save(p) {
+                                    eprintln!("warning: could not save version cache: {e}");
+                                }
+                                out
+                            }
+                            None => crate::security::check_versions(&packages),
+                        };
                         let _ = tx.send(ScanResult::VersionsChecked(count, outcome));
                     });
                 }
