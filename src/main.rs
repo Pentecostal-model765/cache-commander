@@ -7,6 +7,7 @@ mod scanner;
 mod security;
 mod tree;
 mod ui;
+mod updater;
 
 use app::App;
 use config::Config;
