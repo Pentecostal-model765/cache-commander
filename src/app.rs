@@ -46,6 +46,8 @@ pub struct App {
     /// scan requests short-circuit and clear in-progress flags so the UI
     /// doesn't spin on a dead background worker.
     pub scanner_dead: bool,
+    pub update_info: Option<crate::updater::UpdateInfo>,
+    update_rx: mpsc::Receiver<crate::updater::UpdateMsg>,
 }
 
 impl App {
@@ -53,6 +55,7 @@ impl App {
         config: Config,
         scan_rx: mpsc::Receiver<ScanResult>,
         scan_tx: mpsc::Sender<crate::scanner::ScanRequest>,
+        update_rx: mpsc::Receiver<crate::updater::UpdateMsg>,
     ) -> Self {
         let tree = TreeState::new(config.sort_by, config.sort_desc);
         let auto_vuln = config.vulncheck.enabled;
@@ -79,6 +82,8 @@ impl App {
             brew_outdated_in_progress: false,
             auto_brew_outdated_pending: true,
             scanner_dead: false,
+            update_info: None,
+            update_rx,
         }
     }
 
@@ -108,6 +113,15 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        // Drain any update-check results first — independent of scan pipeline.
+        while let Ok(msg) = self.update_rx.try_recv() {
+            match msg {
+                crate::updater::UpdateMsg::Available(info) => {
+                    self.update_info = Some(info);
+                }
+            }
+        }
+
         // H4: accumulate every status-producing result in this tick, then set
         // `status_msg` once at the end. Previously each arm overwrote the
         // prior message, so a tick draining multiple results only showed the
@@ -871,7 +885,7 @@ impl App {
             String::new()
         };
 
-        let line = if self.mode == AppMode::Filtering {
+        let left_line = if self.mode == AppMode::Filtering {
             Line::from(vec![
                 Span::styled(" /", crate::ui::theme::KEY),
                 Span::styled(&self.filter_text, crate::ui::theme::NORMAL),
@@ -901,9 +915,25 @@ impl App {
             ])
         };
 
-        let bar = Paragraph::new(line)
-            .style(ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(30, 30, 50)));
-        f.render_widget(bar, area);
+        let bg = ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(30, 30, 50));
+
+        let badge_text = self
+            .update_info
+            .as_ref()
+            .map(|i| format!(" ↑ ccmd {} available ", i.latest));
+
+        if let Some(text) = badge_text {
+            let badge_width = text.chars().count() as u16;
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(badge_width)])
+                .split(area);
+            f.render_widget(Paragraph::new(left_line).style(bg), chunks[0]);
+            let badge_line = Line::from(Span::styled(text, crate::ui::theme::CAUTION));
+            f.render_widget(Paragraph::new(badge_line).style(bg), chunks[1]);
+        } else {
+            f.render_widget(Paragraph::new(left_line).style(bg), area);
+        }
     }
 }
 
@@ -997,6 +1027,7 @@ mod tests {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: crate::config::UpdaterConfig::default(),
         }
     }
 
@@ -1006,7 +1037,8 @@ mod tests {
     fn build_app(config: Config) -> (App, mpsc::Sender<ScanResult>, mpsc::Receiver<ScanRequest>) {
         let (result_tx, result_rx) = mpsc::channel::<ScanResult>();
         let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>();
-        let app = App::new(config, result_rx, scan_tx);
+        let (_update_tx, update_rx) = mpsc::channel::<crate::updater::UpdateMsg>();
+        let app = App::new(config, result_rx, scan_tx, update_rx);
         (app, result_tx, scan_rx)
     }
 
@@ -1210,6 +1242,23 @@ mod tests {
         for h in &["navigate", "expand", "mark", "delete", "sort"] {
             assert!(out.contains(h), "missing hint '{h}':\n{out}");
         }
+    }
+
+    #[test]
+    fn draw_bottom_bar_shows_update_badge_when_available() {
+        let (mut app, _tx, _rx) = build_app(bare_config());
+        app.tree.set_roots(vec![mk_node("a", 1, CacheKind::Cargo)]);
+        app.update_info = Some(crate::updater::UpdateInfo {
+            latest: "0.3.1".into(),
+            url: "https://example.com/0.3.1".into(),
+        });
+        let out = render_app(&mut app, 140, 20);
+        // Assert on the badge-specific label, not just the arrow glyph —
+        // the bottom-bar nav hints already contain `↑↓`, so a bare
+        // `contains("↑")` check would pass even if the badge stopped
+        // rendering entirely (Copilot review on PR #26).
+        assert!(out.contains("available"), "update badge label:\n{out}");
+        assert!(out.contains("0.3.1"), "version:\n{out}");
     }
 
     // --- tick / ScanResult handling ---------------------------------------
@@ -1635,9 +1684,10 @@ mod tests {
     fn send_scan_request_sets_scanner_dead_on_receiver_drop() {
         let (result_tx, result_rx) = mpsc::channel::<ScanResult>();
         let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>();
+        let (_update_tx, update_rx) = mpsc::channel::<crate::updater::UpdateMsg>();
         // Drop the scanner-side receiver so the next send fails.
         drop(scan_rx);
-        let mut app = App::new(bare_config(), result_rx, scan_tx);
+        let mut app = App::new(bare_config(), result_rx, scan_tx, update_rx);
         let _ = result_tx; // keep ScanResult tx alive; only scan_rx is dropped
 
         app.vulnscan_in_progress = true;
@@ -1659,8 +1709,9 @@ mod tests {
     fn send_scan_request_is_noop_once_scanner_is_dead() {
         let (result_tx, result_rx) = mpsc::channel::<ScanResult>();
         let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>();
+        let (_update_tx, update_rx) = mpsc::channel::<crate::updater::UpdateMsg>();
         drop(scan_rx);
-        let mut app = App::new(bare_config(), result_rx, scan_tx);
+        let mut app = App::new(bare_config(), result_rx, scan_tx, update_rx);
         let _ = result_tx;
 
         app.send_scan_request(ScanRequest::ScanVulns(vec![]));

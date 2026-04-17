@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(long)]
     pub versioncheck: bool,
 
+    /// Disable the startup check for ccmd updates
+    #[arg(long = "no-update-check")]
+    pub no_update_check: bool,
+
     #[cfg(feature = "mcp")]
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -93,6 +97,18 @@ pub struct VersioncheckConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct UpdaterConfig {
+    pub enabled: bool,
+}
+
+impl Default for UpdaterConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub roots: Vec<PathBuf>,
     pub sort_by: SortField,
@@ -100,6 +116,7 @@ pub struct Config {
     pub confirm_delete: bool,
     pub vulncheck: VulncheckConfig,
     pub versioncheck: VersioncheckConfig,
+    pub updater: UpdaterConfig,
 }
 
 impl Default for Config {
@@ -155,6 +172,7 @@ impl Default for Config {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: UpdaterConfig::default(),
         }
     }
 }
@@ -176,6 +194,7 @@ impl Config {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: UpdaterConfig::default(),
         }
     }
 
@@ -200,6 +219,19 @@ impl Config {
         }
         if cli.versioncheck {
             config.versioncheck.enabled = true;
+        }
+        if cli.no_update_check {
+            config.updater.enabled = false;
+        }
+        // Only a genuine "yes/1/true/on" disables the updater — a user
+        // typing `CCMD_NO_UPDATE_CHECK=0` should NOT lose update checks
+        // (Copilot review on PR #26).
+        if std::env::var("CCMD_NO_UPDATE_CHECK")
+            .ok()
+            .as_deref()
+            .is_some_and(env_flag_is_truthy)
+        {
+            config.updater.enabled = false;
         }
 
         // Expand tildes
@@ -408,6 +440,18 @@ fn dirs_home() -> PathBuf {
         })
 }
 
+/// Whether an environment-variable value should be treated as "on" /
+/// "enabled" for boolean-style flags. Matches common conventions
+/// (1/true/yes/on, case-insensitive). Explicitly rejects 0/false/no/off
+/// and the empty string so `CCMD_NO_UPDATE_CHECK=0` doesn't disable
+/// updates by accident.
+fn env_flag_is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn expand_tilde(path: &Path) -> PathBuf {
     if let Ok(stripped) = path.strip_prefix("~") {
         dirs_home().join(stripped)
@@ -488,6 +532,33 @@ mod tests {
         assert!(!expanded.to_string_lossy().contains('~'));
         // Should be just the home dir
         assert_eq!(expanded, dirs_home());
+    }
+
+    // --- env_flag_is_truthy ---
+
+    #[test]
+    fn env_flag_truthy_values() {
+        for v in ["1", "true", "yes", "on", "TRUE", "Yes", "On", " 1 "] {
+            assert!(env_flag_is_truthy(v), "{v:?} should be truthy");
+        }
+    }
+
+    #[test]
+    fn env_flag_falsy_values() {
+        // Critical: "0" and "false" must NOT be treated as "please disable
+        // updates" — a user typing CCMD_NO_UPDATE_CHECK=0 expects the
+        // update check to stay ENABLED.
+        for v in ["", "0", "false", "no", "off", "FALSE", " "] {
+            assert!(!env_flag_is_truthy(v), "{v:?} should be falsy");
+        }
+    }
+
+    #[test]
+    fn env_flag_unknown_values_are_falsy() {
+        // Conservative: unrecognized strings don't flip the flag.
+        for v in ["maybe", "2", "disable", "enable"] {
+            assert!(!env_flag_is_truthy(v), "{v:?} should be falsy (unknown)");
+        }
     }
 
     // --- Config TOML parsing ---

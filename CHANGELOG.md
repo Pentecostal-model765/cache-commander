@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Startup version check**: when a newer `ccmd` release is available on
+  GitHub, the bottom bar shows `↑ ccmd X.Y.Z available`. The check runs
+  at most once every 24 hours and can be disabled with
+  `--no-update-check`, `CCMD_NO_UPDATE_CHECK=1`, or
+  `[updater] enabled = false` in the config file.
+
 ## [0.2.0] — 2026-04-06
 
 ### Added

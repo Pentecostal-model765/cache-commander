@@ -5,3 +5,4 @@ pub mod scanner;
 pub mod security;
 pub mod tree;
 pub mod ui;
+pub mod updater;

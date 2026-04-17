@@ -7,6 +7,7 @@ mod scanner;
 mod security;
 mod tree;
 mod ui;
+mod updater;
 
 use app::App;
 use config::Config;
@@ -48,8 +49,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
 
+    // Background update-check channel
+    let update_rx = updater::start(&config);
+
     // App
-    let mut app = App::new(config, result_rx, scan_tx);
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
     app.init();
 
     // Main loop
