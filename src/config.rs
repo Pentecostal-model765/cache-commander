@@ -215,9 +215,13 @@ impl Config {
         if cli.no_update_check {
             config.updater.enabled = false;
         }
+        // Only a genuine "yes/1/true/on" disables the updater — a user
+        // typing `CCMD_NO_UPDATE_CHECK=0` should NOT lose update checks
+        // (Copilot review on PR #26).
         if std::env::var("CCMD_NO_UPDATE_CHECK")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false)
+            .ok()
+            .as_deref()
+            .is_some_and(env_flag_is_truthy)
         {
             config.updater.enabled = false;
         }
@@ -428,6 +432,18 @@ fn dirs_home() -> PathBuf {
         })
 }
 
+/// Whether an environment-variable value should be treated as "on" /
+/// "enabled" for boolean-style flags. Matches common conventions
+/// (1/true/yes/on, case-insensitive). Explicitly rejects 0/false/no/off
+/// and the empty string so `CCMD_NO_UPDATE_CHECK=0` doesn't disable
+/// updates by accident.
+fn env_flag_is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn expand_tilde(path: &Path) -> PathBuf {
     if let Ok(stripped) = path.strip_prefix("~") {
         dirs_home().join(stripped)
@@ -508,6 +524,33 @@ mod tests {
         assert!(!expanded.to_string_lossy().contains('~'));
         // Should be just the home dir
         assert_eq!(expanded, dirs_home());
+    }
+
+    // --- env_flag_is_truthy ---
+
+    #[test]
+    fn env_flag_truthy_values() {
+        for v in ["1", "true", "yes", "on", "TRUE", "Yes", "On", " 1 "] {
+            assert!(env_flag_is_truthy(v), "{v:?} should be truthy");
+        }
+    }
+
+    #[test]
+    fn env_flag_falsy_values() {
+        // Critical: "0" and "false" must NOT be treated as "please disable
+        // updates" — a user typing CCMD_NO_UPDATE_CHECK=0 expects the
+        // update check to stay ENABLED.
+        for v in ["", "0", "false", "no", "off", "FALSE", " "] {
+            assert!(!env_flag_is_truthy(v), "{v:?} should be falsy");
+        }
+    }
+
+    #[test]
+    fn env_flag_unknown_values_are_falsy() {
+        // Conservative: unrecognized strings don't flip the flag.
+        for v in ["maybe", "2", "disable", "enable"] {
+            assert!(!env_flag_is_truthy(v), "{v:?} should be falsy (unknown)");
+        }
     }
 
     // --- Config TOML parsing ---

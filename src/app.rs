@@ -1253,7 +1253,11 @@ mod tests {
             url: "https://example.com/0.3.1".into(),
         });
         let out = render_app(&mut app, 140, 20);
-        assert!(out.contains("↑"), "up arrow:\n{out}");
+        // Assert on the badge-specific label, not just the arrow glyph —
+        // the bottom-bar nav hints already contain `↑↓`, so a bare
+        // `contains("↑")` check would pass even if the badge stopped
+        // rendering entirely (Copilot review on PR #26).
+        assert!(out.contains("available"), "update badge label:\n{out}");
         assert!(out.contains("0.3.1"), "version:\n{out}");
     }
 
