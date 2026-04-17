@@ -74,7 +74,8 @@ fn test_app() -> App {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     // Set up a tree with roots and children
     app.tree.set_roots(vec![
@@ -258,7 +259,8 @@ fn key_d_without_confirm_deletes_immediately() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![TreeNode {
         path: dir.clone(),
@@ -310,7 +312,8 @@ fn delete_mode_y_confirms() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![TreeNode {
         path: dir.clone(),
@@ -392,7 +395,8 @@ fn bulk_delete_multiple_marked_items() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![
         TreeNode {
@@ -467,7 +471,8 @@ fn bulk_delete_with_confirm_dialog() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![
         TreeNode {
@@ -531,7 +536,8 @@ fn delete_uses_paths_not_stale_indices() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![
         TreeNode {
@@ -896,7 +902,8 @@ fn vuln_propagates_to_ancestors() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     let parent_path = PathBuf::from("/cache/uv");
     let child_path = PathBuf::from("/cache/uv/archive/pkg1");
@@ -942,7 +949,8 @@ fn outdated_propagates_to_ancestors() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     let parent_path = PathBuf::from("/cache/uv");
     let child_path = PathBuf::from("/cache/uv/archive/pkg1");
@@ -1186,7 +1194,8 @@ fn full_workflow_filter_mark_delete() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![
         TreeNode {
@@ -1632,7 +1641,8 @@ fn delete_while_filter_recomputes_dimmed() {
     };
     let (result_tx, result_rx) = mpsc::channel();
     let scan_tx = scanner::start(result_tx);
-    let mut app = App::new(config, result_rx, scan_tx);
+    let (_update_tx, update_rx) = mpsc::channel::<ccmd::updater::UpdateMsg>();
+    let mut app = App::new(config, result_rx, scan_tx, update_rx);
 
     app.tree.set_roots(vec![
         TreeNode {
