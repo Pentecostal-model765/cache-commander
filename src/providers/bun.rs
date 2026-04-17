@@ -65,16 +65,15 @@ pub fn semantic_name(path: &Path) -> Option<String> {
 
     match filename {
         ".bun" => return Some("Bun Runtime".into()),
-        "install" => {
+        "install"
             if path
                 .parent()
                 .and_then(|p| p.file_name())
-                .is_some_and(|n| n == ".bun")
-            {
-                return Some("Bun Install Cache".into());
-            }
+                .is_some_and(|n| n == ".bun") =>
+        {
+            return Some("Bun Install Cache".into());
         }
-        "cache" => {
+        "cache"
             if path
                 .parent()
                 .and_then(|p| p.file_name())
@@ -83,10 +82,9 @@ pub fn semantic_name(path: &Path) -> Option<String> {
                     .parent()
                     .and_then(|p| p.parent())
                     .and_then(|p| p.file_name())
-                    .is_some_and(|n| n == ".bun")
-            {
-                return Some("Bun Package Cache".into());
-            }
+                    .is_some_and(|n| n == ".bun") =>
+        {
+            return Some("Bun Package Cache".into());
         }
         ".cache" => return Some("Bun Internal Metadata".into()),
         _ => {}

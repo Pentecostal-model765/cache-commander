@@ -133,10 +133,8 @@ pub fn parse_classic_filename(filename: &str) -> Option<(String, String)> {
     // Strip known suffixes: "-integrity" (current format) or ".tgz" (legacy)
     let stem = if let Some(s) = filename.strip_suffix("-integrity") {
         s
-    } else if let Some(s) = filename.strip_suffix(".tgz") {
-        s
     } else {
-        return None;
+        filename.strip_suffix(".tgz")?
     };
 
     // Must start with "npm-"

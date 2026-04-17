@@ -3,8 +3,10 @@ pub mod cargo;
 pub mod chroma;
 pub mod generic;
 pub mod gh;
+pub mod gradle;
 pub mod homebrew;
 pub mod huggingface;
+pub mod maven;
 pub mod npm;
 pub mod pip;
 pub mod pnpm;
@@ -74,6 +76,8 @@ pub fn detect(path: &Path) -> CacheKind {
         ".yarn-cache" => return CacheKind::Yarn,
         ".pnpm-store" => return CacheKind::Pnpm,
         ".pnpm" => return CacheKind::Pnpm,
+        ".m2" => return CacheKind::Maven,
+        ".gradle" => return CacheKind::Gradle,
         _ => {}
     }
 
@@ -85,23 +89,23 @@ pub fn detect(path: &Path) -> CacheKind {
             .unwrap_or_default();
         match ancestor_name.as_str() {
             ".pnpm-store" => return CacheKind::Pnpm,
-            ".pnpm" => {
-                if ancestor.to_string_lossy().contains("node_modules") {
-                    return CacheKind::Pnpm;
-                }
+            ".pnpm" if ancestor.to_string_lossy().contains("node_modules") => {
+                return CacheKind::Pnpm;
             }
-            "pnpm" => {
-                if path.to_string_lossy().contains("store") {
-                    return CacheKind::Pnpm;
-                }
+            "pnpm" if path.to_string_lossy().contains("store") => {
+                return CacheKind::Pnpm;
+            }
+            ".m2" => return CacheKind::Maven,
+            ".gradle" => return CacheKind::Gradle,
+            "repository" if ancestor.to_string_lossy().contains(".m2") => {
+                return CacheKind::Maven;
             }
             ".yarn-cache" | "Yarn" => return CacheKind::Yarn,
-            ".yarn" => {
-                if path.to_string_lossy().contains(".yarn/cache")
-                    || path.to_string_lossy().contains(".yarn\\cache")
-                {
-                    return CacheKind::Yarn;
-                }
+            ".yarn"
+                if (path.to_string_lossy().contains(".yarn/cache")
+                    || path.to_string_lossy().contains(".yarn\\cache")) =>
+            {
+                return CacheKind::Yarn;
             }
             "yarn" => {
                 // ~/.cache/yarn/ is Classic
@@ -125,10 +129,8 @@ pub fn detect(path: &Path) -> CacheKind {
             "chroma" => return CacheKind::Chroma,
             "prisma" => return CacheKind::Prisma,
             ".npm" | "npm" => return CacheKind::Npm,
-            "registry" => {
-                if ancestor.to_string_lossy().contains(".cargo") {
-                    return CacheKind::Cargo;
-                }
+            "registry" if ancestor.to_string_lossy().contains(".cargo") => {
+                return CacheKind::Cargo;
             }
             _ => {}
         }
@@ -155,6 +157,8 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Yarn => yarn::semantic_name(path),
         CacheKind::Pnpm => pnpm::semantic_name(path),
         CacheKind::Bun => bun::semantic_name(path),
+        CacheKind::Maven => maven::semantic_name(path),
+        CacheKind::Gradle => gradle::semantic_name(path),
         CacheKind::Unknown => None,
     }
 }
@@ -177,6 +181,8 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Yarn => yarn::metadata(path),
         CacheKind::Pnpm => pnpm::metadata(path),
         CacheKind::Bun => bun::metadata(path),
+        CacheKind::Maven => maven::metadata(path),
+        CacheKind::Gradle => gradle::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
 }
@@ -197,6 +203,8 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
         CacheKind::Yarn => yarn::package_id(path),
         CacheKind::Pnpm => pnpm::package_id(path),
         CacheKind::Bun => bun::package_id(path),
+        CacheKind::Maven => maven::package_id(path),
+        CacheKind::Gradle => gradle::package_id(path),
         _ => None,
     }
 }
@@ -364,6 +372,55 @@ mod tests {
         assert_eq!(
             detect(&PathBuf::from("/home/user/.cache/something_random")),
             CacheKind::Unknown
+        );
+    }
+
+    #[test]
+    fn detect_maven_m2_dir() {
+        assert_eq!(detect(&PathBuf::from("/home/user/.m2")), CacheKind::Maven);
+    }
+
+    #[test]
+    fn detect_maven_repository_dir() {
+        assert_eq!(
+            detect(&PathBuf::from("/home/user/.m2/repository")),
+            CacheKind::Maven
+        );
+    }
+
+    #[test]
+    fn detect_maven_jar_deep() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.m2/repository/com/google/guava/guava/32.0.0-jre/guava-32.0.0-jre.jar"
+            )),
+            CacheKind::Maven
+        );
+    }
+
+    #[test]
+    fn detect_gradle_dot_dir() {
+        assert_eq!(
+            detect(&PathBuf::from("/home/user/.gradle")),
+            CacheKind::Gradle
+        );
+    }
+
+    #[test]
+    fn detect_gradle_caches_subdir() {
+        assert_eq!(
+            detect(&PathBuf::from("/home/user/.gradle/caches")),
+            CacheKind::Gradle
+        );
+    }
+
+    #[test]
+    fn detect_gradle_jar_deep() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/home/user/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/32.0.0-jre/abc/guava-32.0.0-jre.jar"
+            )),
+            CacheKind::Gradle
         );
     }
 
@@ -1033,6 +1090,8 @@ mod tests {
             CacheKind::Yarn,
             CacheKind::Pnpm,
             CacheKind::Bun,
+            CacheKind::Maven,
+            CacheKind::Gradle,
             CacheKind::Unknown,
         ];
         for kind in &all {
