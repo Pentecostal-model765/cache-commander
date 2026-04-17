@@ -10,6 +10,7 @@ ccmd \- browse and manage cache directories
 .RB [ \-\-no\-confirm ]
 .RB [ \-\-vulncheck ]
 .RB [ \-\-versioncheck ]
+.RB [ \-\-no\-update\-check ]
 .PP
 .B ccmd mcp
 .SH DESCRIPTION
@@ -54,6 +55,11 @@ Queries OSV.dev for known vulnerabilities in cached packages.
 .B \-\-versioncheck
 Enable version checking.
 Queries package registries to identify outdated cached packages.
+.TP
+.B \-\-no\-update\-check
+Disable the startup check for newer \fBccmd\fR releases.
+Equivalent to setting \fB[updater] enabled = false\fR in the config file or
+\fBCCMD_NO_UPDATE_CHECK=1\fR in the environment.
 .SH KEYBINDINGS
 .SS Navigation
 .TP
@@ -153,6 +159,9 @@ enabled = false
 
 [versioncheck]
 enabled = false
+
+[updater]
+enabled = true
 .fi
 .RE
 .PP
