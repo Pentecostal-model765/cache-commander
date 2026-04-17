@@ -1,13 +1,55 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.1] — 2026-04-17
 
 ### Added
-- **Startup version check**: when a newer `ccmd` release is available on
-  GitHub, the bottom bar shows `↑ ccmd X.Y.Z available`. The check runs
-  at most once every 24 hours and can be disabled with
-  `--no-update-check`, `CCMD_NO_UPDATE_CHECK=1`, or
-  `[updater] enabled = false` in the config file.
+- **JVM ecosystem support (#25)**: new `Maven` and `Gradle` cache providers.
+  `~/.m2/repository` and `~/.gradle/caches` are auto-detected as roots and
+  parsed into `group:artifact version` semantic names. Gradle's `files-2.1`
+  layout is handled. Both share the OSV `Maven` ecosystem for vulnerability
+  scanning. Maven Central `maven-metadata.xml` backs the version-check
+  pipeline (prefers `<release>` over `<latest>` to avoid SNAPSHOT drift).
+  Scanner depth raised from 6 to 12 to fit deep group hierarchies.
+  Note: `c`-to-copy upgrade command is not yet wired up for Maven/Gradle
+  (no clean single-line upgrade — pom/gradle files need editing).
+- **Startup version check (#26)**: when a newer `ccmd` release is available
+  on GitHub, the bottom bar shows `↑ ccmd X.Y.Z available`. Runs on a
+  background thread, caches results for 24 h at `<cache-dir>/update-check.json`.
+  Opt-out via `--no-update-check`, `CCMD_NO_UPDATE_CHECK=1`, or
+  `[updater] enabled = false` in the config file. Pre-release builds
+  (`0.4.0-dev`) never show the badge.
+- **Persistent scan cache (#27)**: OSV vulnerability results and registry
+  version-check results are cached to
+  `<cache-dir>/{vuln,version}_cache.json` with a 24 h TTL. Subsequent
+  launches re-use fresh cached results instead of re-hitting the network.
+  Atomic save via temp-file + rename, `prune_expired` before save so the
+  file doesn't grow unbounded, and a cache-hit percentage surfaced in the
+  status bar (integer math; `100%` reserved for full hits only).
+
+### Fixed
+- Opus 4.7 code review pass: 7 HIGH, 10 MEDIUM, 8 LOW findings addressed
+  across the tree (TOCTOU in MCP delete, pnpm multi-byte filename panic,
+  status-message clobbering under concurrent scans, etc.). See commit
+  `36af04f` for the full list.
+- Bumped `rustls-webpki` to 0.103.12 for RUSTSEC-2026-0098/0099.
+- Stable clippy 1.95 and MSRV (1.88) CI failures.
+
+### Changed
+- `send_scan_request` helper with a `scanner_dead` flag replaces 11 silent
+  `let _ = scan_tx.send(...)` sites; the status bar now surfaces scanner
+  death instead of silently hanging.
+- `Config::default_for_test()` skips subprocess probes so tests don't
+  couple to host-tool availability.
+- Coverage job emits full lcov with DA records (Codecov can compute
+  coverage deltas on PRs).
+
+### Tests & infrastructure
+- Net ~+100 unit and integration tests (1495 → 1736+ passing). Project
+  coverage now ≥ 93%.
+- MSRV (1.88) CI job, nightly `--features e2e` cron, and an E2E JVM
+  providers job.
+- Mocked HTTP tests for OSV and registry via a self-contained
+  `TcpListener` helper (no new dev-deps).
 
 ## [0.2.0] — 2026-04-06
 

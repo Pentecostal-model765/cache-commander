@@ -22,7 +22,7 @@ Developer machines accumulate tens of gigabytes of invisible cache data — ML m
 ## Why
 
 - **ML models** (HuggingFace, PyTorch, Whisper) — tens of GB you forgot about
-- **Package caches** (pip, uv, npm, Yarn, pnpm, Bun, Cargo, Homebrew) — old versions with known CVEs
+- **Package caches** (pip, uv, npm, Yarn, pnpm, Bun, Cargo, Maven, Gradle, Homebrew) — old versions with known CVEs
 - **npm supply chain risk** — transitive deps with install scripts hiding in npx cache
 - **Build artifacts** (pre-commit hooks, Prisma engines) — stale and re-downloadable
 
@@ -77,7 +77,7 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 ### Browse and Understand
 
 - **Two-pane TUI** — navigable tree on the left, details on the right
-- **15 cache providers** — semantic names instead of hash directories
+- **17 cache providers** — semantic names instead of hash directories
 - **Safety levels** — green (safe to delete), yellow (may cause rebuilds), red (contains state)
 - **Sort** by size, name, or last modified
 - **Search** with `/` — case-insensitive filter across the tree
@@ -120,6 +120,8 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 | Yarn | `~/.yarn-cache`, `.yarn/cache` | Package names and versions |
 | pnpm | `~/.pnpm-store` | Package names and versions |
 | Bun | `~/.bun/install/cache` | Package names and versions |
+| Maven | `~/.m2/repository` | `group:artifact version` from layout |
+| Gradle | `~/.gradle/caches` | `group:artifact version` from `files-2.1` layout |
 
 ## Key Bindings
 
