@@ -85,23 +85,18 @@ pub fn detect(path: &Path) -> CacheKind {
             .unwrap_or_default();
         match ancestor_name.as_str() {
             ".pnpm-store" => return CacheKind::Pnpm,
-            ".pnpm" => {
-                if ancestor.to_string_lossy().contains("node_modules") {
-                    return CacheKind::Pnpm;
-                }
+            ".pnpm" if ancestor.to_string_lossy().contains("node_modules") => {
+                return CacheKind::Pnpm;
             }
-            "pnpm" => {
-                if path.to_string_lossy().contains("store") {
-                    return CacheKind::Pnpm;
-                }
+            "pnpm" if path.to_string_lossy().contains("store") => {
+                return CacheKind::Pnpm;
             }
             ".yarn-cache" | "Yarn" => return CacheKind::Yarn,
-            ".yarn" => {
-                if path.to_string_lossy().contains(".yarn/cache")
-                    || path.to_string_lossy().contains(".yarn\\cache")
-                {
-                    return CacheKind::Yarn;
-                }
+            ".yarn"
+                if (path.to_string_lossy().contains(".yarn/cache")
+                    || path.to_string_lossy().contains(".yarn\\cache")) =>
+            {
+                return CacheKind::Yarn;
             }
             "yarn" => {
                 // ~/.cache/yarn/ is Classic
@@ -125,10 +120,8 @@ pub fn detect(path: &Path) -> CacheKind {
             "chroma" => return CacheKind::Chroma,
             "prisma" => return CacheKind::Prisma,
             ".npm" | "npm" => return CacheKind::Npm,
-            "registry" => {
-                if ancestor.to_string_lossy().contains(".cargo") {
-                    return CacheKind::Cargo;
-                }
+            "registry" if ancestor.to_string_lossy().contains(".cargo") => {
+                return CacheKind::Cargo;
             }
             _ => {}
         }

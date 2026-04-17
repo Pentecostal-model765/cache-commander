@@ -270,25 +270,25 @@ fn probe_yarn_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Try CLI detection (with timeout to avoid blocking if yarn hangs)
-    if let Some(output) = run_with_timeout("yarn", &["cache", "dir"]) {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let path = PathBuf::from(&path_str);
-            if path.exists() {
-                paths.push(path);
-            }
+    if let Some(output) = run_with_timeout("yarn", &["cache", "dir"])
+        && output.status.success()
+    {
+        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let path = PathBuf::from(&path_str);
+        if path.exists() {
+            paths.push(path);
         }
     }
 
     // Yarn 2+ (Berry) cache folder
-    if let Some(output) = run_with_timeout("yarn", &["config", "get", "cacheFolder"]) {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path_str.is_empty() && path_str != "undefined" {
-                let path = PathBuf::from(&path_str);
-                if path.exists() && !paths.contains(&path) {
-                    paths.push(path);
-                }
+    if let Some(output) = run_with_timeout("yarn", &["config", "get", "cacheFolder"])
+        && output.status.success()
+    {
+        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path_str.is_empty() && path_str != "undefined" {
+            let path = PathBuf::from(&path_str);
+            if path.exists() && !paths.contains(&path) {
+                paths.push(path);
             }
         }
     }
@@ -318,19 +318,19 @@ fn probe_pnpm_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Try CLI detection (with timeout to avoid blocking if pnpm hangs)
-    if let Some(output) = run_with_timeout("pnpm", &["store", "path"]) {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let path = PathBuf::from(&path_str);
-            if path.exists() {
-                // `pnpm store path` returns e.g. .../store/v10; go up to `store`
-                // so the tree shows the full store hierarchy.
-                let root = path
-                    .parent()
-                    .filter(|p| p.parent().is_some()) // reject "/" or ""
-                    .unwrap_or(&path);
-                paths.push(root.to_path_buf());
-            }
+    if let Some(output) = run_with_timeout("pnpm", &["store", "path"])
+        && output.status.success()
+    {
+        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let path = PathBuf::from(&path_str);
+        if path.exists() {
+            // `pnpm store path` returns e.g. .../store/v10; go up to `store`
+            // so the tree shows the full store hierarchy.
+            let root = path
+                .parent()
+                .filter(|p| p.parent().is_some()) // reject "/" or ""
+                .unwrap_or(&path);
+            paths.push(root.to_path_buf());
         }
     }
 

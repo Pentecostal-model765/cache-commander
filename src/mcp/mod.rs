@@ -183,10 +183,10 @@ impl CcmdMcp {
             return label.to_string();
         }
         // Unknown provider — use parent directory to give context
-        if let Some(parent) = node.path.parent() {
-            if parent.ends_with("Library/Caches") {
-                return "~/Library/Caches".to_string();
-            }
+        if let Some(parent) = node.path.parent()
+            && parent.ends_with("Library/Caches")
+        {
+            return "~/Library/Caches".to_string();
         }
         "Other".to_string()
     }
@@ -214,7 +214,7 @@ impl CcmdMcp {
                 item_count: count,
             })
             .collect();
-        roots.sort_by(|a, b| b.total_size_bytes.cmp(&a.total_size_bytes));
+        roots.sort_by_key(|r| std::cmp::Reverse(r.total_size_bytes));
         roots
     }
 
@@ -249,7 +249,7 @@ impl CcmdMcp {
                 item_count: count,
             })
             .collect();
-        provider_summaries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        provider_summaries.sort_by_key(|p| std::cmp::Reverse(p.size_bytes));
 
         Summary {
             total_size: format_size(total_size, BINARY),

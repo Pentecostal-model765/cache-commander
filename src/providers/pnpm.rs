@@ -94,10 +94,10 @@ pub fn semantic_name(path: &Path) -> Option<String> {
 
     // Subdirectories inside the content store
     if path_str.contains(".pnpm-store") || path_str.contains("pnpm/store") {
-        if let Some(version) = name.strip_prefix('v') {
-            if version.chars().all(|c| c.is_ascii_digit()) {
-                return Some(format!("Store v{version}"));
-            }
+        if let Some(version) = name.strip_prefix('v')
+            && version.chars().all(|c| c.is_ascii_digit())
+        {
+            return Some(format!("Store v{version}"));
         }
         if name == "files" {
             return Some("Content Files".to_string());
@@ -108,17 +108,19 @@ pub fn semantic_name(path: &Path) -> Option<String> {
     }
 
     // Index files: {hash}-name@version.json → "name version"
-    if name.ends_with(".json") && path_str.contains("/index/") {
-        if let Some(id) = parse_index_filename(&name) {
-            return Some(format!("{} {}", id.name, id.version));
-        }
+    if name.ends_with(".json")
+        && path_str.contains("/index/")
+        && let Some(id) = parse_index_filename(&name)
+    {
+        return Some(format!("{} {}", id.name, id.version));
     }
 
     // Virtual store entries: name@version directories
-    if name.contains('@') && is_pnpm_virtual_store(path) {
-        if let Some((pkg, ver)) = parse_virtual_store_name(&name) {
-            return Some(format!("{} {}", pkg, ver));
-        }
+    if name.contains('@')
+        && is_pnpm_virtual_store(path)
+        && let Some((pkg, ver)) = parse_virtual_store_name(&name)
+    {
+        return Some(format!("{} {}", pkg, ver));
     }
 
     None

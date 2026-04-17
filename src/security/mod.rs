@@ -177,10 +177,10 @@ fn fetch_fix_versions(vuln_ids: &[String]) -> HashMap<String, osv::OsvVulnDetail
                 let id = id.clone();
                 let cache = Arc::clone(&cache);
                 std::thread::spawn(move || {
-                    if let Ok(detail) = osv::fetch_vuln_detail(&id) {
-                        if let Ok(mut map) = cache.lock() {
-                            map.insert(id, detail);
-                        }
+                    if let Ok(detail) = osv::fetch_vuln_detail(&id)
+                        && let Ok(mut map) = cache.lock()
+                    {
+                        map.insert(id, detail);
                     }
                 })
             })

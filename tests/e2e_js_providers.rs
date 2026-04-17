@@ -70,14 +70,6 @@ fn run_stdout(cmd: &str, args: &[&str]) -> Option<String> {
     }
 }
 
-/// Collect discovered package names from a set of roots.
-fn discovered_names(roots: &[PathBuf]) -> Vec<String> {
-    ccmd::scanner::discover_packages(roots)
-        .into_iter()
-        .map(|(_, id)| id.name)
-        .collect()
-}
-
 /// Collect discovered packages as (name, version, ecosystem) tuples.
 fn discovered_packages(roots: &[PathBuf]) -> Vec<(String, String, &'static str)> {
     ccmd::scanner::discover_packages(roots)
@@ -180,7 +172,7 @@ fn e2e_yarn_classic_realistic_packages() {
     }
 
     // Now verify the scanner discovers all packages correctly
-    let packages = discovered_packages(&[cache_path.clone()]);
+    let packages = discovered_packages(std::slice::from_ref(&cache_path));
     let names: Vec<&str> = packages.iter().map(|(n, _, _)| n.as_str()).collect();
 
     assert!(names.contains(&"lodash"), "Should find lodash: {names:?}");
@@ -410,7 +402,7 @@ fn e2e_pnpm_realistic_packages() {
     }
 
     // Verify scanner finds all packages
-    let packages = discovered_packages(&[pnpm_dir.clone()]);
+    let packages = discovered_packages(std::slice::from_ref(&pnpm_dir));
     let names: Vec<&str> = packages.iter().map(|(n, _, _)| n.as_str()).collect();
 
     assert!(names.contains(&"lodash"), "Should find lodash: {names:?}");

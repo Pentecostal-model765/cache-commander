@@ -360,19 +360,17 @@ impl App {
                 let roots = self.config.roots.clone();
                 self.send_scan_request(crate::scanner::ScanRequest::CheckVersions(roots));
             }
-            KeyCode::Char('d') | KeyCode::Char('D') => {
-                if !self.tree.marked.is_empty() {
-                    self.delete_candidates = self
-                        .tree
-                        .marked
-                        .iter()
-                        .filter_map(|&idx| self.tree.nodes.get(idx).map(|n| n.path.clone()))
-                        .collect();
-                    if self.config.confirm_delete {
-                        self.mode = AppMode::Deleting;
-                    } else {
-                        self.perform_delete();
-                    }
+            KeyCode::Char('d') | KeyCode::Char('D') if !self.tree.marked.is_empty() => {
+                self.delete_candidates = self
+                    .tree
+                    .marked
+                    .iter()
+                    .filter_map(|&idx| self.tree.nodes.get(idx).map(|n| n.path.clone()))
+                    .collect();
+                if self.config.confirm_delete {
+                    self.mode = AppMode::Deleting;
+                } else {
+                    self.perform_delete();
                 }
             }
             KeyCode::Char('c') => {
