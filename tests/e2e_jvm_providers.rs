@@ -12,7 +12,8 @@
 #![cfg(feature = "e2e")]
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 // ============================================================
 // Helpers
@@ -26,16 +27,46 @@ fn is_available(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// How long any single `mvn` / `gradle` invocation is allowed to run before we
+/// kill it. A stalled Maven Central download or a paused Gradle daemon should
+/// not hang the whole CI job indefinitely.
+const RUN_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Run a command with a bounded timeout. Kills the child on timeout so we
+/// surface a clean test failure instead of letting CI hang.
 fn run(cmd: &mut Command, label: &str) {
-    let output = cmd
-        .output()
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap_or_else(|e| panic!("{label}: failed to spawn: {e}"));
-    if !output.status.success() {
-        panic!(
-            "{label} failed:\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
+
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() > RUN_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("{label}: exceeded {}s timeout", RUN_TIMEOUT.as_secs());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => panic!("{label}: wait failed: {e}"),
+        }
+    };
+
+    if !status.success() {
+        let output = child.wait_with_output().ok();
+        let (stdout, stderr) = match output {
+            Some(o) => (
+                String::from_utf8_lossy(&o.stdout).into_owned(),
+                String::from_utf8_lossy(&o.stderr).into_owned(),
+            ),
+            None => (String::new(), String::new()),
+        };
+        panic!("{label} failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     }
 }
 
@@ -216,20 +247,23 @@ fn e2e_maven_discovery_and_vuln_scan() {
 
 fn write_gradle_project(project_dir: &Path) {
     std::fs::create_dir_all(project_dir).unwrap();
-    // Use an init script to force Maven Central as the *only* repository.
+    // Declare Maven Central inline in build.gradle (no init script needed).
     let settings = r#"rootProject.name = 'e2e'"#;
     std::fs::write(project_dir.join("settings.gradle"), settings).unwrap();
 
+    // Use pre-Gradle-4.9 `task name { ... }` syntax — supported by every
+    // Gradle version we might encounter (Ubuntu's apt still ships 4.4.1).
+    // `tasks.register(...)` would break on older Gradles.
     let build = format!(
         r#"
-plugins {{ id 'java' }}
+apply plugin: 'java'
 repositories {{ mavenCentral() }}
 dependencies {{
     implementation '{log4j}'
     implementation '{commons_text}'
     implementation '{guava}'
 }}
-tasks.register('resolveAll') {{
+task resolveAll {{
     doLast {{
         configurations.runtimeClasspath.resolve()
     }}

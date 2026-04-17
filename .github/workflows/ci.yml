@@ -156,8 +156,13 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Maven and Gradle
-        run: sudo apt-get update && sudo apt-get install -y maven gradle
+      - name: Install Maven
+        run: sudo apt-get update && sudo apt-get install -y maven
+
+      - name: Install Gradle
+        # Ubuntu's apt gradle (4.4.1, 2017) is too old to support modern DSL.
+        # setup-gradle provides a maintained Gradle on PATH.
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Run JVM E2E tests
         run: cargo test --features e2e --test e2e_jvm_providers -- --test-threads=1

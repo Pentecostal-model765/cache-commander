@@ -285,6 +285,20 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
                 SafetyLevel::Caution
             }
         }
+        CacheKind::Gradle => {
+            // Gradle's caches/ subdir houses a mix: dep caches (Safe) and
+            // rebuild-expensive caches (Caution). Classify by subdir name.
+            let path_str = path.to_string_lossy();
+            if path_str.contains("/build-cache-")
+                || path_str.contains("\\build-cache-")
+                || path_str.contains("/transforms-")
+                || path_str.contains("\\transforms-")
+            {
+                SafetyLevel::Caution
+            } else {
+                SafetyLevel::Safe
+            }
+        }
         CacheKind::Unknown => SafetyLevel::Caution,
         _ => SafetyLevel::Safe,
     }
@@ -1073,6 +1087,56 @@ mod tests {
             safety(
                 CacheKind::Bun,
                 &PathBuf::from("/home/user/.bun/install/cache/lodash@4.17.21"),
+            ),
+            SafetyLevel::Safe
+        );
+    }
+
+    #[test]
+    fn safety_gradle_modules_files_is_safe() {
+        // Dependency cache — re-resolvable from Maven Central.
+        assert_eq!(
+            safety(
+                CacheKind::Gradle,
+                &PathBuf::from(
+                    "/home/user/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/32.0.0-jre/abc/guava-32.0.0-jre.jar"
+                )
+            ),
+            SafetyLevel::Safe
+        );
+    }
+
+    #[test]
+    fn safety_gradle_build_cache_is_caution() {
+        // build-cache-* stores compiled outputs — deletion triggers full rebuild.
+        assert_eq!(
+            safety(
+                CacheKind::Gradle,
+                &PathBuf::from("/home/user/.gradle/caches/build-cache-1/abc123")
+            ),
+            SafetyLevel::Caution
+        );
+    }
+
+    #[test]
+    fn safety_gradle_transforms_is_caution() {
+        // transforms-* stores expensive dependency transformations.
+        assert_eq!(
+            safety(
+                CacheKind::Gradle,
+                &PathBuf::from("/home/user/.gradle/caches/transforms-4/abc")
+            ),
+            SafetyLevel::Caution
+        );
+    }
+
+    #[test]
+    fn safety_gradle_wrapper_dist_is_safe() {
+        // ~/.gradle/wrapper/dists/ — re-downloadable from services.gradle.org.
+        assert_eq!(
+            safety(
+                CacheKind::Gradle,
+                &PathBuf::from("/home/user/.gradle/wrapper/dists/gradle-8.5-bin")
             ),
             SafetyLevel::Safe
         );
