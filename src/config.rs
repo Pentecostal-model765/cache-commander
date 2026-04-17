@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(long)]
     pub versioncheck: bool,
 
+    /// Disable the startup check for ccmd updates
+    #[arg(long = "no-update-check")]
+    pub no_update_check: bool,
+
     #[cfg(feature = "mcp")]
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -93,6 +97,18 @@ pub struct VersioncheckConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct UpdaterConfig {
+    pub enabled: bool,
+}
+
+impl Default for UpdaterConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub roots: Vec<PathBuf>,
     pub sort_by: SortField,
@@ -100,6 +116,7 @@ pub struct Config {
     pub confirm_delete: bool,
     pub vulncheck: VulncheckConfig,
     pub versioncheck: VersioncheckConfig,
+    pub updater: UpdaterConfig,
 }
 
 impl Default for Config {
@@ -147,6 +164,7 @@ impl Default for Config {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: UpdaterConfig::default(),
         }
     }
 }
@@ -168,6 +186,7 @@ impl Config {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: UpdaterConfig::default(),
         }
     }
 
@@ -192,6 +211,15 @@ impl Config {
         }
         if cli.versioncheck {
             config.versioncheck.enabled = true;
+        }
+        if cli.no_update_check {
+            config.updater.enabled = false;
+        }
+        if std::env::var("CCMD_NO_UPDATE_CHECK")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        {
+            config.updater.enabled = false;
         }
 
         // Expand tildes

@@ -997,6 +997,7 @@ mod tests {
             confirm_delete: true,
             vulncheck: VulncheckConfig::default(),
             versioncheck: VersioncheckConfig::default(),
+            updater: crate::config::UpdaterConfig::default(),
         }
     }
 
