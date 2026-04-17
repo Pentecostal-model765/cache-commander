@@ -152,6 +152,25 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Tests-only default that skips subprocess probes for yarn/pnpm/bun.
+    /// `Config::default()` shells out to several package-manager CLIs on
+    /// every call; in a test suite that builds many configs that's both
+    /// slow and coupling tests to host tool availability (L9). New
+    /// callers: use this in place of `Config { ..Default::default() }`
+    /// when the config's cache-root probing is not what's under test.
+    #[cfg(any(test, feature = "e2e"))]
+    #[allow(dead_code)] // provided for tests; not yet consumed in-tree
+    pub fn default_for_test() -> Self {
+        Self {
+            roots: vec![],
+            sort_by: SortField::Size,
+            sort_desc: true,
+            confirm_delete: true,
+            vulncheck: VulncheckConfig::default(),
+            versioncheck: VersioncheckConfig::default(),
+        }
+    }
+
     pub fn load() -> (Self, Cli) {
         let cli = Cli::parse();
         let mut config = Self::load_from_file().unwrap_or_default();
