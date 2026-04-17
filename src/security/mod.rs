@@ -202,9 +202,10 @@ where
 
     let mut vuln_ids_to_fetch: Vec<String> = Vec::new();
     let mut fresh_results: HashMap<PathBuf, SecurityInfo> = HashMap::new();
-    // Tracks chunks whose query succeeded so the cache can record negative
-    // results for packages in those chunks without vulns.
-    let mut succeeded_miss_pkgs: Vec<PackageId> = Vec::new();
+    // Paths from chunks whose OSV query succeeded. Packages not listed here
+    // either failed outright (contributing to `unscanned`) and must not be
+    // cached, so writeback consults this set instead of re-scanning misses.
+    let mut succeeded_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
     for chunk in misses.chunks(100) {
         let ids: Vec<PackageId> = chunk.iter().map(|(_, id)| id.clone()).collect();
@@ -216,7 +217,9 @@ where
                 continue;
             }
         };
-        succeeded_miss_pkgs.extend(ids);
+        for (path, _) in chunk {
+            succeeded_paths.insert(path.clone());
+        }
         for (path, info) in process_osv_response(chunk, &response, &mut vuln_ids_to_fetch) {
             fresh_results.insert(path, info);
         }
@@ -225,19 +228,15 @@ where
     let detail_cache = fetch_fix_versions(&vuln_ids_to_fetch);
     backfill_and_filter_vulns(&mut fresh_results, &misses, &detail_cache);
 
-    // Write cache entries for everything we successfully queried (including
-    // negatives), then merge fresh results into the output.
+    // One linear pass over misses: cache only the ones whose query succeeded.
+    // Entries absent from fresh_results had no active vulns → cache as negative.
     if let Some(c) = cache.as_mut() {
-        for pkg in &succeeded_miss_pkgs {
-            let empty = SecurityInfo { vulns: vec![] };
-            let path = misses
-                .iter()
-                .find(|(_, p)| p == pkg)
-                .map(|(p, _)| p.clone());
-            let info = path
-                .as_ref()
-                .and_then(|p| fresh_results.get(p))
-                .unwrap_or(&empty);
+        let empty = SecurityInfo { vulns: vec![] };
+        for (path, pkg) in &misses {
+            if !succeeded_paths.contains(path) {
+                continue;
+            }
+            let info = fresh_results.get(path).unwrap_or(&empty);
             c.insert(pkg, info);
         }
     }
@@ -872,7 +871,6 @@ mod tests {
 
     #[test]
     fn check_versions_with_cache_skips_cached_packages() {
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
         let pkgs: Vec<(PathBuf, PackageId)> = vec![
             (PathBuf::from("/a"), pkg("requests", "2.31.0")),
@@ -891,7 +889,6 @@ mod tests {
         // Counter captured by the checker closure.
         static CALLS: AtomicUsize = AtomicUsize::new(0);
         CALLS.store(0, Ordering::SeqCst);
-        let _ = Arc::new(()); // keeps import used
 
         fn fake_checker(_pkg: &PackageId) -> Result<Option<String>, String> {
             CALLS.fetch_add(1, Ordering::SeqCst);
@@ -938,8 +935,8 @@ mod tests {
 
     #[test]
     fn check_versions_with_cache_does_not_cache_when_unchecked_present() {
-        // If any miss failed, we can't tell which ones — avoid polluting cache
-        // with spurious "up-to-date" entries for packages that actually failed.
+        // Failed lookups are absent from fresh.results, so they never get
+        // cached — next run will retry. Verifies that invariant.
         fn fails(_pkg: &PackageId) -> Result<Option<String>, String> {
             Err("nope".into())
         }

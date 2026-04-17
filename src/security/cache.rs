@@ -20,10 +20,14 @@ fn key(pkg: &PackageId) -> String {
 }
 
 fn now_secs() -> u64 {
+    // If the clock is set before 1970 we can't compute age correctly.
+    // Returning u64::MAX makes every entry appear expired instead of
+    // the opposite (falling back to 0 would make everything look fresh
+    // forever on a misconfigured host).
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .unwrap_or(u64::MAX)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +151,16 @@ impl VulnCache {
         }
     }
 
+    /// Drop entries older than the TTL at the given wall-clock time. The
+    /// scanner calls this before `save()` so the disk file doesn't grow
+    /// unbounded as packages get upgraded (stale `(name, version)` tuples
+    /// would otherwise linger, just ignored on read).
+    pub fn prune_expired(&mut self, now: u64) {
+        let ttl = self.ttl_secs;
+        self.entries
+            .retain(|_, e| now.saturating_sub(e.cached_at) <= ttl);
+    }
+
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -156,7 +170,7 @@ impl VulnCache {
         };
         let json = serde_json::to_string_pretty(&file)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, json)
+        atomic_write(path, json.as_bytes())
     }
 
     #[cfg(test)]
@@ -232,6 +246,12 @@ impl VersionCache {
         }
     }
 
+    pub fn prune_expired(&mut self, now: u64) {
+        let ttl = self.ttl_secs;
+        self.entries
+            .retain(|_, e| now.saturating_sub(e.cached_at) <= ttl);
+    }
+
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -241,8 +261,28 @@ impl VersionCache {
         };
         let json = serde_json::to_string_pretty(&file)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, json)
+        atomic_write(path, json.as_bytes())
     }
+}
+
+/// Write `bytes` to `path` atomically: write to a sibling temp file, then
+/// rename it into place. A crash mid-write leaves either the prior file
+/// (pre-rename) or the complete new file, never a truncated blob.
+fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    // Same directory as the final path so rename stays on the same
+    // filesystem (cross-fs rename would silently degrade to copy+remove
+    // and lose the atomicity guarantee).
+    let tmp = match path.file_name() {
+        Some(name) => {
+            let mut tmp_name = std::ffi::OsString::from(".");
+            tmp_name.push(name);
+            tmp_name.push(".tmp");
+            path.with_file_name(tmp_name)
+        }
+        None => return std::fs::write(path, bytes),
+    };
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
 }
 
 /// Resolve on-disk paths for the two cache files. Returns `None` if the
@@ -387,6 +427,65 @@ mod tests {
         let loaded = VersionCache::load_with_ttl(&path, 100);
         let hit = loaded.get_at(&p, 500).expect("roundtripped");
         assert!(!hit.is_outdated);
+    }
+
+    #[test]
+    fn prune_expired_drops_stale_entries() {
+        let mut cache = VulnCache::new(60);
+        let fresh = PackageId {
+            ecosystem: "PyPI",
+            name: "fresh".into(),
+            version: "1.0.0".into(),
+        };
+        let ancient = PackageId {
+            ecosystem: "PyPI",
+            name: "ancient".into(),
+            version: "1.0.0".into(),
+        };
+        cache.insert_at(&ancient, &SecurityInfo { vulns: vec![] }, 1_000);
+        cache.insert_at(&fresh, &SecurityInfo { vulns: vec![] }, 10_000);
+
+        cache.prune_expired(10_050); // 50s past the fresh insert
+        assert!(cache.get_at(&fresh, 10_050).is_some(), "fresh retained");
+        assert!(
+            cache.get_at(&ancient, 10_050).is_none(),
+            "ancient (9050s old) pruned"
+        );
+        // Direct entry count to prove the HashMap itself shrank.
+        assert_eq!(cache.entries.len(), 1, "in-memory entries shrank");
+    }
+
+    #[test]
+    fn atomic_save_leaves_no_temp_file_on_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vuln.json");
+        let mut c = VulnCache::new(100);
+        c.insert_at(
+            &PackageId {
+                ecosystem: "PyPI",
+                name: "p".into(),
+                version: "1.0".into(),
+            },
+            &SecurityInfo { vulns: vec![] },
+            1000,
+        );
+        c.save(&path).unwrap();
+        assert!(path.exists());
+        // The temp file should not linger after a successful rename.
+        let tmp = dir.path().join(".vuln.json.tmp");
+        assert!(!tmp.exists(), "temp file cleaned up after rename");
+    }
+
+    #[test]
+    fn atomic_save_overwrites_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vuln.json");
+        std::fs::write(&path, "old garbage").unwrap();
+        let c = VulnCache::new(100);
+        c.save(&path).unwrap();
+        // Rename atomically replaces the old contents; no "old garbage" remains.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.starts_with("{"), "expected JSON, got: {raw:?}");
     }
 
     #[test]

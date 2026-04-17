@@ -182,7 +182,6 @@ fn cache_file_is_human_readable_json() {
     assert!(raw.contains("cached_at"), "timestamp field present");
 }
 
-#[allow(dead_code)]
 fn cache_entries_on_disk(path: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }

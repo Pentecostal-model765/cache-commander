@@ -5,6 +5,13 @@ use crate::tree::node::TreeNode;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(u64::MAX)
+}
+
 pub enum ScanRequest {
     ScanRoots(Vec<PathBuf>),
     ExpandNode(PathBuf),
@@ -100,6 +107,7 @@ pub fn start(result_tx: mpsc::Sender<ScanResult>) -> mpsc::Sender<ScanRequest> {
                             Some(p) => {
                                 let mut c = crate::security::cache::VulnCache::load(p);
                                 let out = crate::security::scan_vulns_with_cache(&packages, &mut c);
+                                c.prune_expired(now_secs());
                                 if let Err(e) = c.save(p) {
                                     eprintln!("warning: could not save vuln cache: {e}");
                                 }
@@ -121,6 +129,7 @@ pub fn start(result_tx: mpsc::Sender<ScanResult>) -> mpsc::Sender<ScanRequest> {
                                 let mut c = crate::security::cache::VersionCache::load(p);
                                 let out =
                                     crate::security::check_versions_with_cache(&packages, &mut c);
+                                c.prune_expired(now_secs());
                                 if let Err(e) = c.save(p) {
                                     eprintln!("warning: could not save version cache: {e}");
                                 }

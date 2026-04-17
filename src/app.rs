@@ -961,7 +961,14 @@ pub(crate) fn cache_hit_suffix(cached_hits: usize, attempted: usize) -> String {
     if cached_hits == 0 || attempted == 0 {
         return String::new();
     }
-    let pct = (cached_hits as f64 / attempted as f64 * 100.0).round() as u64;
+    // Integer math, and 100% only when literally all packages hit the
+    // cache. Float rounding previously displayed 100% for e.g. 999/1000,
+    // masking the fact that one package still went to the network.
+    let pct = if cached_hits >= attempted {
+        100
+    } else {
+        (cached_hits * 100) / attempted
+    };
     format!(" [cache: {}/{} ({}%)]", cached_hits, attempted, pct)
 }
 
@@ -1357,7 +1364,16 @@ mod tests {
         assert_eq!(cache_hit_suffix(5, 0), "", "zero attempted → no suffix");
         assert_eq!(cache_hit_suffix(10, 10), " [cache: 10/10 (100%)]");
         assert_eq!(cache_hit_suffix(1, 4), " [cache: 1/4 (25%)]");
-        assert_eq!(cache_hit_suffix(2, 3), " [cache: 2/3 (67%)]");
+        // Integer truncation, not rounding: 2/3 == 66.6…% → 66%.
+        assert_eq!(cache_hit_suffix(2, 3), " [cache: 2/3 (66%)]");
+    }
+
+    #[test]
+    fn cache_hit_suffix_reserves_100_percent_for_full_hits_only() {
+        // Float rounding would previously display 100% here, hiding
+        // the fact that one of 1000 packages went to the network.
+        assert_eq!(cache_hit_suffix(999, 1000), " [cache: 999/1000 (99%)]");
+        assert_eq!(cache_hit_suffix(1000, 1000), " [cache: 1000/1000 (100%)]");
     }
 
     #[test]
