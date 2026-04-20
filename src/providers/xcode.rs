@@ -72,8 +72,58 @@ fn extract_plist_string(xml: &str, key: &str) -> Option<String> {
     }
 }
 
-pub fn metadata(_path: &Path) -> Vec<MetadataField> {
-    Vec::new()
+pub fn metadata(path: &Path) -> Vec<MetadataField> {
+    let mut fields = Vec::new();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent_name = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // Root-level labels.
+    match name.as_str() {
+        "DerivedData" => {
+            fields.push(MetadataField {
+                label: "Contents".into(),
+                value: "Xcode build products and indexes (rebuildable, 5–30 min cost)".into(),
+            });
+            return fields;
+        }
+        "iOS DeviceSupport" => {
+            fields.push(MetadataField {
+                label: "Contents".into(),
+                value:
+                    "Symbol files for connected iOS devices (re-downloadable on device reconnect)"
+                        .into(),
+            });
+            return fields;
+        }
+        "Caches" if parent_name == "CoreSimulator" => {
+            fields.push(MetadataField {
+                label: "Contents".into(),
+                value: "iOS Simulator caches (safe to clear)".into(),
+            });
+            return fields;
+        }
+        _ => {}
+    }
+
+    // DerivedData project dir: surface WORKSPACE_PATH so the user sees
+    // which project they're about to nuke.
+    if parent_name == "DerivedData"
+        && let Some(wp) = read_workspace_path(path)
+    {
+        fields.push(MetadataField {
+            label: "Workspace".into(),
+            value: wp,
+        });
+    }
+
+    fields
 }
 
 #[cfg(test)]
@@ -166,5 +216,61 @@ mod tests {
         ] {
             assert_eq!(semantic_name(&PathBuf::from(p)), None, "{p}");
         }
+    }
+
+    #[test]
+    fn metadata_derived_data_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Developer/Xcode/DerivedData");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("build products")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_ios_device_support_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Developer/Xcode/iOS DeviceSupport");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("Symbol files")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_core_simulator_caches_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Developer/CoreSimulator/Caches");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("Simulator")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_derived_data_project_dir_emits_workspace_path_when_available() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = make_derived_data_dir(&tmp, Some("/Users/j/dev/MyApp/MyApp.xcworkspace"));
+        let fields = metadata(&dir);
+        assert!(
+            fields.iter().any(
+                |f| f.label == "Workspace" && f.value == "/Users/j/dev/MyApp/MyApp.xcworkspace"
+            ),
+            "expected Workspace field, got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_derived_data_project_dir_without_plist_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = make_derived_data_dir(&tmp, None);
+        assert!(metadata(&dir).is_empty());
     }
 }
