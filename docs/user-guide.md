@@ -128,9 +128,15 @@ When you select an item, the right panel shows:
 
 ### Scanning for Vulnerabilities
 
-Press **`V`** to scan all cached packages against the [OSV.dev](https://osv.dev) vulnerability database. This finds known CVEs in your pip, uv, npm, and Cargo cached packages.
+Press **`V`** to scan all cached packages against the [OSV.dev](https://osv.dev) vulnerability database. Press **`v`** (lowercase) to scan only the selected item and its children.
 
-Press **`v`** (lowercase) to scan only the selected item and its children.
+Participating providers (cover all package-manager ecosystems supported by OSV):
+- **pip**, **uv** → OSV `PyPI`
+- **npm**, **Yarn**, **pnpm**, **Bun** → OSV `npm`
+- **Cargo** → OSV `crates.io`
+- **Maven**, **Gradle** → OSV `Maven`
+
+Other providers (HuggingFace, Homebrew, Whisper, GitHub CLI, PyTorch, Chroma, Prisma, pre-commit, SwiftPM, Xcode) are disk-hygiene only — pressing `v`/`V` on entries from those providers is a no-op. See the [Provider Capabilities matrix](../README.md#provider-capabilities) in the README for the full list.
 
 The scan:
 1. Discovers packages with identifiable name + version across all caches
@@ -142,7 +148,15 @@ Results appear as `⚠` icons in the tree and detailed CVE info in the right pan
 
 ### Checking for Outdated Packages
 
-Press **`O`** to check all packages against their registries (PyPI, crates.io, npm). Press **`o`** for just the selected item.
+Press **`O`** to check all packages against their registries; **`o`** for just the selected item.
+
+Registries queried:
+- **pip**, **uv** → PyPI JSON API
+- **npm**, **Yarn**, **pnpm**, **Bun** → npm registry
+- **Cargo** → crates.io
+- **Maven**, **Gradle** → Maven Central (`maven-metadata.xml`, prefers `<release>` over `<latest>` to avoid SNAPSHOTs)
+
+Providers without a public registry (SwiftPM, Xcode, etc.) skip this step. See the README's Provider Capabilities matrix for the full list.
 
 Outdated packages show `↓` in the tree and "Update available" in the detail panel.
 
@@ -243,11 +257,27 @@ This deletes only the vulnerable cached artifacts. Next time your package manage
 
 ## Copying Upgrade Commands
 
-When viewing a vulnerable or outdated package, press **`c`** to copy the upgrade command to your clipboard:
+When viewing a vulnerable or outdated package, press **`c`** to copy the upgrade command to your clipboard.
 
-- pip/uv packages: `pip install requests>=2.32.0`
-- npm packages: `npm install express@4.19.0`
-- Cargo packages: `cargo update -p serde`
+Shell commands:
+- **pip** → `pip install 'requests>=2.32.0'`
+- **uv** → `uv pip install 'requests>=2.32.0'`
+- **npm** → `npm install express@4.19.0`
+- **Yarn** → `yarn add express@4.19.0`
+- **pnpm** → `pnpm add express@4.19.0`
+- **Bun** → `bun add express@4.19.0`
+- **Cargo** → `cargo update -p serde`
+
+Paste-ready snippets (JVM ecosystems have no single-line CLI upgrade):
+- **Maven** → `<dependency><groupId>…</groupId><artifactId>…</artifactId><version>…</version></dependency>`
+- **Gradle** → `implementation 'group:artifact:version'`
+
+Providers without upgrade commands (`c` is a no-op):
+- **SwiftPM** — upgrades are project-local (`swift package update`, `Package.swift`), not cache-entry operations.
+- **Xcode** — build artifacts, not packages.
+- **HuggingFace, Homebrew, Whisper, GitHub CLI, PyTorch, Chroma, Prisma, pre-commit** — no package-manager ecosystem wired up.
+
+See the [Provider Capabilities matrix](../README.md#provider-capabilities) for the full list.
 
 If clipboard access isn't available, the command is shown in the status bar.
 
