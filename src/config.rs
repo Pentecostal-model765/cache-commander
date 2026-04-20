@@ -144,6 +144,29 @@ impl Default for Config {
             roots.push(gradle_caches);
         }
 
+        // Xcode caches live outside ~/Library/Caches, so they need their
+        // own roots. SwiftPM deliberately does NOT get its own root —
+        // its cache (org.swift.swiftpm) lives under ~/Library/Caches on
+        // macOS and ~/.cache on Linux, both already configured above.
+        // Adding it as a duplicate root would create two TreeNodes for
+        // the same path, breaking child expansion (insert_children
+        // matches via first position()).
+        #[cfg(target_os = "macos")]
+        {
+            let derived_data = home.join("Library/Developer/Xcode/DerivedData");
+            if derived_data.exists() {
+                roots.push(derived_data);
+            }
+            let device_support = home.join("Library/Developer/Xcode/iOS DeviceSupport");
+            if device_support.exists() {
+                roots.push(device_support);
+            }
+            let coresim_caches = home.join("Library/Developer/CoreSimulator/Caches");
+            if coresim_caches.exists() {
+                roots.push(coresim_caches);
+            }
+        }
+
         // Yarn cache paths
         for path in probe_yarn_paths() {
             if !roots.contains(&path) {
@@ -795,5 +818,93 @@ mod tests {
     fn cli_mcp_subcommand_parses() {
         let cli = Cli::try_parse_from(["ccmd", "mcp"]).unwrap();
         assert!(cli.command.is_some());
+    }
+
+    // --- SwiftPM / Xcode default roots ---
+
+    #[test]
+    fn default_for_test_is_empty_roots() {
+        // Regression guard: adding new roots must not leak into the test
+        // config (L6). If this fails, default_for_test() was quietly
+        // extended to probe the host — don't do that.
+        assert!(Config::default_for_test().roots.is_empty());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn default_config_does_not_add_swiftpm_as_separate_root_on_macos() {
+        // SwiftPM's cache lives at ~/Library/Caches/org.swift.swiftpm,
+        // which is already under the ~/Library/Caches root. Adding it as
+        // a duplicate root creates two TreeNodes with the same path —
+        // insert_children picks the first one by position() and the
+        // user's expand on the root-level duplicate silently does
+        // nothing. Discovery via the parent root is sufficient;
+        // detect() classifies org.swift.swiftpm correctly on the first
+        // level-down expand.
+        let swiftpm = dirs_home().join("Library/Caches/org.swift.swiftpm");
+        let config = Config::default();
+        assert!(
+            !config.roots.iter().any(|r| r == &swiftpm),
+            "SwiftPM must not be listed as its own root, got {:?}",
+            config.roots
+        );
+    }
+
+    #[test]
+    fn default_config_does_not_add_swiftpm_as_separate_root_on_linux() {
+        // Same rationale as the macOS test — ~/.cache/org.swift.swiftpm
+        // lives under the ~/.cache root.
+        let swiftpm = dirs_home().join(".cache/org.swift.swiftpm");
+        let config = Config::default();
+        assert!(
+            !config.roots.iter().any(|r| r == &swiftpm),
+            "SwiftPM must not be listed as its own root on Linux, got {:?}",
+            config.roots
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn default_config_includes_derived_data_when_exists() {
+        let dd = dirs_home().join("Library/Developer/Xcode/DerivedData");
+        if !dd.exists() {
+            return;
+        }
+        let config = Config::default();
+        assert!(
+            config.roots.iter().any(|r| r == &dd),
+            "expected DerivedData root, got {:?}",
+            config.roots
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn default_config_includes_ios_device_support_when_exists() {
+        let ds = dirs_home().join("Library/Developer/Xcode/iOS DeviceSupport");
+        if !ds.exists() {
+            return;
+        }
+        let config = Config::default();
+        assert!(
+            config.roots.iter().any(|r| r == &ds),
+            "expected iOS DeviceSupport root, got {:?}",
+            config.roots
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn default_config_includes_coresimulator_caches_when_exists() {
+        let sim = dirs_home().join("Library/Developer/CoreSimulator/Caches");
+        if !sim.exists() {
+            return;
+        }
+        let config = Config::default();
+        assert!(
+            config.roots.iter().any(|r| r == &sim),
+            "expected CoreSimulator/Caches root, got {:?}",
+            config.roots
+        );
     }
 }

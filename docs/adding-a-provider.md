@@ -291,6 +291,15 @@ an essay.
   cache automatically — no per-provider code. If your ecosystem has
   unusually volatile version data, flag it when adding the provider
   so the TTL can be revisited.
+- **SwiftPM / Xcode (#11, #17):** disk-hygiene-only providers are a
+  valid shape — return `None` from `package_id`, skip the
+  OSV/registry arms entirely, and document the Tier-3 E2E exemption
+  in the module header comment so future reviewers don't think the
+  E2E test is missing by accident. For Xcode's `Info.plist`, a tiny
+  XML string scanner (`find` + byte-index slicing) is sufficient and
+  avoids a `plist` crate dependency; Xcode always emits XML for
+  DerivedData's `Info.plist`, and char-boundary-safe slicing keeps
+  multi-byte workspace paths (日本語) from panicking.
 
 <!--
 Template for new entries:

@@ -12,9 +12,11 @@ pub mod pip;
 pub mod pnpm;
 pub mod pre_commit;
 pub mod prisma;
+pub mod swiftpm;
 pub mod torch;
 pub mod uv;
 pub mod whisper;
+pub mod xcode;
 pub mod yarn;
 
 use crate::tree::node::CacheKind;
@@ -78,6 +80,7 @@ pub fn detect(path: &Path) -> CacheKind {
         ".pnpm" => return CacheKind::Pnpm,
         ".m2" => return CacheKind::Maven,
         ".gradle" => return CacheKind::Gradle,
+        "org.swift.swiftpm" => return CacheKind::SwiftPm,
         _ => {}
     }
 
@@ -132,8 +135,20 @@ pub fn detect(path: &Path) -> CacheKind {
             "registry" if ancestor.to_string_lossy().contains(".cargo") => {
                 return CacheKind::Cargo;
             }
+            "org.swift.swiftpm" => return CacheKind::SwiftPm,
             _ => {}
         }
+    }
+
+    // Xcode detection uses adjacent-component matching (L1-safe) rather
+    // than single-component ancestor walks, because names like
+    // "DerivedData" or "Caches" alone are too ambiguous to match
+    // unconditionally.
+    if has_adjacent_components(path, "Xcode", "DerivedData")
+        || has_adjacent_components(path, "Xcode", "iOS DeviceSupport")
+        || has_adjacent_components(path, "CoreSimulator", "Caches")
+    {
+        return CacheKind::Xcode;
     }
 
     CacheKind::Unknown
@@ -159,6 +174,8 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Bun => bun::semantic_name(path),
         CacheKind::Maven => maven::semantic_name(path),
         CacheKind::Gradle => gradle::semantic_name(path),
+        CacheKind::SwiftPm => swiftpm::semantic_name(path),
+        CacheKind::Xcode => xcode::semantic_name(path),
         CacheKind::Unknown => None,
     }
 }
@@ -183,6 +200,8 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Bun => bun::metadata(path),
         CacheKind::Maven => maven::metadata(path),
         CacheKind::Gradle => gradle::metadata(path),
+        CacheKind::SwiftPm => swiftpm::metadata(path),
+        CacheKind::Xcode => xcode::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
 }
@@ -339,6 +358,33 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
                 || path_str.contains("/transforms-")
                 || path_str.contains("\\transforms-")
             {
+                SafetyLevel::Caution
+            } else {
+                SafetyLevel::Safe
+            }
+        }
+        CacheKind::SwiftPm => {
+            // Walk the adjacent component after `org.swift.swiftpm` to decide.
+            // Component-based match avoids L1 substring false positives.
+            let comps: Vec<&std::ffi::OsStr> = path.components().map(|c| c.as_os_str()).collect();
+            for w in comps.windows(2) {
+                if w[0] == "org.swift.swiftpm" {
+                    return match w[1].to_string_lossy().as_ref() {
+                        "repositories" => SafetyLevel::Caution,
+                        "artifacts" | "manifests" => SafetyLevel::Safe,
+                        _ => SafetyLevel::Caution, // unknown future subdirs
+                    };
+                }
+            }
+            // Path is the root itself or outside the known layout.
+            SafetyLevel::Caution
+        }
+        CacheKind::Xcode => {
+            // Only DerivedData triggers Caution (rebuild cost). iOS
+            // DeviceSupport and CoreSimulator caches are Safe. Component
+            // matching avoids L1 substring leaks (DerivedData-backup stays
+            // on the Safe fall-through).
+            if has_adjacent_components(path, "Xcode", "DerivedData") {
                 SafetyLevel::Caution
             } else {
                 SafetyLevel::Safe
@@ -1355,6 +1401,8 @@ mod tests {
             CacheKind::Bun,
             CacheKind::Maven,
             CacheKind::Gradle,
+            CacheKind::SwiftPm,
+            CacheKind::Xcode,
             CacheKind::Unknown,
         ];
         for kind in &all {
@@ -1364,5 +1412,178 @@ mod tests {
             let _ = metadata(*kind, &dummy);
             let _ = package_id(*kind, &dummy);
         }
+    }
+
+    // --- SwiftPM detect ---
+
+    #[test]
+    fn detect_swiftpm_library_caches_root() {
+        assert_eq!(
+            detect(&PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm")),
+            CacheKind::SwiftPm
+        );
+    }
+
+    #[test]
+    fn detect_swiftpm_linux_cache_root() {
+        assert_eq!(
+            detect(&PathBuf::from("/home/u/.cache/org.swift.swiftpm")),
+            CacheKind::SwiftPm
+        );
+    }
+
+    #[test]
+    fn detect_swiftpm_repositories_subdir() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Caches/org.swift.swiftpm/repositories/swift-collections-abc1234"
+            )),
+            CacheKind::SwiftPm
+        );
+    }
+
+    #[test]
+    fn detect_swiftpm_rejects_confusable_suffix() {
+        // L1: substring match would accept this; component match must reject.
+        assert_ne!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Caches/org.swift.swiftpm-backup"
+            )),
+            CacheKind::SwiftPm
+        );
+    }
+
+    // --- Xcode detect ---
+
+    #[test]
+    fn detect_xcode_derived_data() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Developer/Xcode/DerivedData"
+            )),
+            CacheKind::Xcode
+        );
+    }
+
+    #[test]
+    fn detect_xcode_derived_data_project_subdir() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Developer/Xcode/DerivedData/MyApp-abc123def456"
+            )),
+            CacheKind::Xcode
+        );
+    }
+
+    #[test]
+    fn detect_xcode_ios_device_support() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Developer/Xcode/iOS DeviceSupport/17.4 (21E213)"
+            )),
+            CacheKind::Xcode
+        );
+    }
+
+    #[test]
+    fn detect_xcode_core_simulator_caches() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Developer/CoreSimulator/Caches/something"
+            )),
+            CacheKind::Xcode
+        );
+    }
+
+    #[test]
+    fn detect_xcode_rejects_confusable_suffix() {
+        // L1: Xcode/DerivedData-backup must not match.
+        assert_ne!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Developer/Xcode/DerivedData-backup"
+            )),
+            CacheKind::Xcode
+        );
+    }
+
+    #[test]
+    fn detect_xcode_rejects_unrelated_derived_data() {
+        // A DerivedData directory not under Xcode must not match.
+        assert_ne!(
+            detect(&PathBuf::from("/random/path/DerivedData")),
+            CacheKind::Xcode
+        );
+    }
+
+    // --- SwiftPM safety ---
+
+    #[test]
+    fn safety_swiftpm_repositories_is_caution() {
+        let path = PathBuf::from(
+            "/Users/j/Library/Caches/org.swift.swiftpm/repositories/swift-collections-abc1234",
+        );
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_swiftpm_artifacts_is_safe() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/artifacts/MyBinaryDep");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_swiftpm_manifests_is_safe() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/manifests/deadbeef");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_swiftpm_unknown_subdir_is_caution() {
+        // Conservative: unknown future subdir defaults to Caution.
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/futuredir/item");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_swiftpm_rejects_confusable_suffix() {
+        // L1: `repositories-old` must NOT be classified as repositories Caution —
+        // it falls through to the unknown-subdir Caution default, which happens
+        // to also be Caution, so assert the classification path via a Safe
+        // companion check.
+        let confusable =
+            PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/artifacts-backup/MyDep");
+        // artifacts-backup must NOT be Safe (it isn't artifacts/).
+        assert_eq!(
+            safety(CacheKind::SwiftPm, &confusable),
+            SafetyLevel::Caution
+        );
+    }
+
+    // --- Xcode safety ---
+
+    #[test]
+    fn safety_xcode_derived_data_is_caution() {
+        let path = PathBuf::from("/Users/j/Library/Developer/Xcode/DerivedData/MyApp-abc");
+        assert_eq!(safety(CacheKind::Xcode, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_xcode_ios_device_support_is_safe() {
+        let path =
+            PathBuf::from("/Users/j/Library/Developer/Xcode/iOS DeviceSupport/17.4 (21E213)");
+        assert_eq!(safety(CacheKind::Xcode, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_xcode_core_simulator_caches_is_safe() {
+        let path = PathBuf::from("/Users/j/Library/Developer/CoreSimulator/Caches/something");
+        assert_eq!(safety(CacheKind::Xcode, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_xcode_rejects_confusable_suffix_derived_data() {
+        // L1: DerivedData-backup must not be classified as Caution-DerivedData.
+        let path = PathBuf::from("/Users/j/Library/Developer/Xcode/DerivedData-backup/junk");
+        assert_eq!(safety(CacheKind::Xcode, &path), SafetyLevel::Safe);
     }
 }

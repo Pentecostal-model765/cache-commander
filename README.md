@@ -22,7 +22,8 @@ Developer machines accumulate tens of gigabytes of invisible cache data — ML m
 ## Why
 
 - **ML models** (HuggingFace, PyTorch, Whisper) — tens of GB you forgot about
-- **Package caches** (pip, uv, npm, Yarn, pnpm, Bun, Cargo, Maven, Gradle, Homebrew) — old versions with known CVEs
+- **Package caches** (pip, uv, npm, Yarn, pnpm, Bun, Cargo, Maven, Gradle, SwiftPM, Homebrew) — old versions with known CVEs
+- **Xcode DerivedData** — often 50–200 GB on macOS dev machines; never cleaned
 - **npm supply chain risk** — transitive deps with install scripts hiding in npx cache
 - **Build artifacts** (pre-commit hooks, Prisma engines) — stale and re-downloadable
 
@@ -77,7 +78,7 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 ### Browse and Understand
 
 - **Two-pane TUI** — navigable tree on the left, details on the right
-- **17 cache providers** — semantic names instead of hash directories
+- **19 cache providers** — semantic names instead of hash directories
 - **Safety levels** — green (safe to delete), yellow (may cause rebuilds), red (contains state)
 - **Sort** by size, name, or last modified
 - **Search** with `/` — case-insensitive filter across the tree
@@ -122,6 +123,44 @@ ccmd --root ~/.cache/huggingface  # scan a specific directory
 | Bun | `~/.bun/install/cache` | Package names and versions |
 | Maven | `~/.m2/repository` | `group:artifact version` from layout |
 | Gradle | `~/.gradle/caches` | `group:artifact version` from `files-2.1` layout |
+| SwiftPM | `~/Library/Caches/org.swift.swiftpm` (macOS), `~/.cache/org.swift.swiftpm` (Linux) | Package names from `repositories/` and `artifacts/` |
+| Xcode | `~/Library/Developer/Xcode/DerivedData`, `~/Library/Developer/Xcode/iOS DeviceSupport`, `~/Library/Developer/CoreSimulator/Caches` | Workspace path from `Info.plist`, iOS version strings |
+
+## Provider Capabilities
+
+All providers support tree navigation, size display, and deletion. This matrix shows which optional capabilities each provider implements.
+
+| Provider | Safety classification | Vuln scan (`v`/`V`) | Outdated check (`o`/`O`) | Upgrade copy (`c`) |
+|----------|----------------------|---------------------|--------------------------|--------------------|
+| HuggingFace | Safe | — | — | — |
+| pip | Safe | OSV `PyPI` | PyPI | `pip install` |
+| uv | Safe | OSV `PyPI` | PyPI | `uv pip install` |
+| npm | Safe | OSV `npm` | npm registry | `npm install` |
+| Homebrew | Safe | — | — | — |
+| Cargo | Safe | OSV `crates.io` | crates.io | `cargo update -p` |
+| pre-commit | Safe | — | — | — |
+| Whisper | Safe | — | — | — |
+| GitHub CLI | Safe | — | — | — |
+| PyTorch | Safe | — | — | — |
+| Chroma | Safe | — | — | — |
+| Prisma | Safe | — | — | — |
+| Yarn | Safe; Berry `.yarn/cache/` = **Caution** (zero-install) | OSV `npm` | npm registry | `yarn add` |
+| pnpm | Safe; virtual store (`node_modules/.pnpm/`) = **Caution** | OSV `npm` | npm registry | `pnpm add` |
+| Bun | Safe for `install/cache/`; `.bun/bin/*` = **Unsafe** (runtime); else **Caution** | OSV `npm` | npm registry | `bun add` |
+| Maven | Safe | OSV `Maven` | Maven Central | `<dependency>…</dependency>` snippet |
+| Gradle | Safe; `build-cache-*/` + `transforms-*/` = **Caution** | OSV `Maven` | Maven Central | `implementation '…'` line |
+| SwiftPM | `repositories/` = **Caution** (re-clone); `artifacts/` + `manifests/` = Safe; unknown subdirs = **Caution** | — ¹ | — ¹ | — ¹ |
+| Xcode | `DerivedData/` = **Caution** (5–30 min rebuild); `iOS DeviceSupport/` + `CoreSimulator/Caches/` = Safe | — ² | — ² | — ² |
+
+Legend:
+- **Safe** = re-downloadable, free to delete (shown with `●` in the detail panel).
+- **Caution** = deletion triggers rebuild / re-fetch cost (shown with `◐`).
+- **Unsafe** = deletion breaks the tool itself (shown with `○`).
+- **—** = not supported for this provider.
+
+Notes:
+- ¹ **SwiftPM** is intentionally disk-hygiene only in v1. Swift package identity in the on-disk `repositories/` layout requires parsing git refs, which is too brittle; OSV's `SwiftURL` ecosystem has sparse coverage; and Swift package upgrades are project-local (`Package.swift` / `Package.resolved`), not global cache operations. May be reconsidered when OSV coverage improves.
+- ² **Xcode** has no package-manager ecosystem — its caches are build artifacts, not packages. Vulnerability scanning, version checking, and upgrade commands don't apply.
 
 ## Key Bindings
 
