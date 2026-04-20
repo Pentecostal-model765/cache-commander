@@ -53,8 +53,31 @@ fn strip_hash_suffix(s: &str) -> String {
     }
 }
 
-pub fn metadata(_path: &Path) -> Vec<MetadataField> {
-    Vec::new()
+pub fn metadata(path: &Path) -> Vec<MetadataField> {
+    let mut fields = Vec::new();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent_is_swiftpm_root = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n == "org.swift.swiftpm");
+    if parent_is_swiftpm_root {
+        let value = match name.as_str() {
+            "repositories" => Some("Git clones of package sources (re-cloneable)"),
+            "artifacts" => Some("Binary artifacts (re-downloadable)"),
+            "manifests" => Some("Cached Package.swift resolutions"),
+            _ => None,
+        };
+        if let Some(v) = value {
+            fields.push(MetadataField {
+                label: "Contents".to_string(),
+                value: v.to_string(),
+            });
+        }
+    }
+    fields
 }
 
 #[cfg(test)]
@@ -115,5 +138,49 @@ mod tests {
         let path =
             PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/repositories/plain-name");
         assert_eq!(semantic_name(&path), Some("plain-name".into()));
+    }
+
+    #[test]
+    fn metadata_repositories_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/repositories");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("Git clones")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_artifacts_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/artifacts");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("Binary artifacts")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_manifests_root_reports_contents() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/manifests");
+        let fields = metadata(&path);
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.label == "Contents" && f.value.contains("Package.swift")),
+            "got {fields:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_leaf_file_returns_empty() {
+        let path = PathBuf::from(
+            "/Users/j/Library/Caches/org.swift.swiftpm/repositories/swift-collections-abc1234",
+        );
+        assert!(metadata(&path).is_empty());
     }
 }
