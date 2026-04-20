@@ -20,6 +20,8 @@ pub enum CacheKind {
     Bun,
     Maven,
     Gradle,
+    SwiftPm,
+    Xcode,
     #[default]
     Unknown,
 }
@@ -44,6 +46,8 @@ impl CacheKind {
             Self::Bun => "Bun",
             Self::Maven => "Maven",
             Self::Gradle => "Gradle",
+            Self::SwiftPm => "Swift Package Manager",
+            Self::Xcode => "Xcode",
             Self::Unknown => "",
         }
     }
@@ -71,6 +75,8 @@ impl CacheKind {
             Self::Gradle => {
                 "JVM build tool — dependency cache, wrapper distributions, and build cache"
             }
+            Self::SwiftPm => "Swift Package Manager — cached git clones, artifacts, and manifests",
+            Self::Xcode => "Xcode build caches — DerivedData, iOS DeviceSupport, Simulator",
             Self::Unknown => "",
         }
     }
@@ -94,6 +100,8 @@ impl CacheKind {
             Self::Bun => "https://bun.sh",
             Self::Maven => "https://maven.apache.org",
             Self::Gradle => "https://gradle.org",
+            Self::SwiftPm => "https://www.swift.org/package-manager/",
+            Self::Xcode => "https://developer.apple.com/xcode/",
             Self::Unknown => "",
         }
     }
@@ -248,6 +256,8 @@ mod tests {
             CacheKind::Bun,
             CacheKind::Maven,
             CacheKind::Gradle,
+            CacheKind::SwiftPm,
+            CacheKind::Xcode,
         ];
         for kind in &all {
             assert!(!kind.label().is_empty(), "{:?} label empty", kind);
@@ -275,5 +285,22 @@ mod tests {
         assert_eq!(CacheKind::Pnpm.label(), "pnpm");
         assert!(!CacheKind::Pnpm.description().is_empty());
         assert!(!CacheKind::Pnpm.url().is_empty());
+    }
+
+    #[test]
+    fn cache_kind_swiftpm_label_description_url() {
+        assert_eq!(CacheKind::SwiftPm.label(), "Swift Package Manager");
+        assert!(!CacheKind::SwiftPm.description().is_empty());
+        assert_eq!(
+            CacheKind::SwiftPm.url(),
+            "https://www.swift.org/package-manager/"
+        );
+    }
+
+    #[test]
+    fn cache_kind_xcode_label_description_url() {
+        assert_eq!(CacheKind::Xcode.label(), "Xcode");
+        assert!(!CacheKind::Xcode.description().is_empty());
+        assert_eq!(CacheKind::Xcode.url(), "https://developer.apple.com/xcode/");
     }
 }
