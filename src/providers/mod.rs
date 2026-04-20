@@ -363,6 +363,22 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
                 SafetyLevel::Safe
             }
         }
+        CacheKind::SwiftPm => {
+            // Walk the adjacent component after `org.swift.swiftpm` to decide.
+            // Component-based match avoids L1 substring false positives.
+            let comps: Vec<&std::ffi::OsStr> = path.components().map(|c| c.as_os_str()).collect();
+            for w in comps.windows(2) {
+                if w[0] == "org.swift.swiftpm" {
+                    return match w[1].to_string_lossy().as_ref() {
+                        "repositories" => SafetyLevel::Caution,
+                        "artifacts" | "manifests" => SafetyLevel::Safe,
+                        _ => SafetyLevel::Caution, // unknown future subdirs
+                    };
+                }
+            }
+            // Path is the root itself or outside the known layout.
+            SafetyLevel::Caution
+        }
         CacheKind::Unknown => SafetyLevel::Caution,
         _ => SafetyLevel::Safe,
     }
@@ -1485,6 +1501,50 @@ mod tests {
         assert_ne!(
             detect(&PathBuf::from("/random/path/DerivedData")),
             CacheKind::Xcode
+        );
+    }
+
+    // --- SwiftPM safety ---
+
+    #[test]
+    fn safety_swiftpm_repositories_is_caution() {
+        let path = PathBuf::from(
+            "/Users/j/Library/Caches/org.swift.swiftpm/repositories/swift-collections-abc1234",
+        );
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_swiftpm_artifacts_is_safe() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/artifacts/MyBinaryDep");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_swiftpm_manifests_is_safe() {
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/manifests/deadbeef");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_swiftpm_unknown_subdir_is_caution() {
+        // Conservative: unknown future subdir defaults to Caution.
+        let path = PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/futuredir/item");
+        assert_eq!(safety(CacheKind::SwiftPm, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_swiftpm_rejects_confusable_suffix() {
+        // L1: `repositories-old` must NOT be classified as repositories Caution —
+        // it falls through to the unknown-subdir Caution default, which happens
+        // to also be Caution, so assert the classification path via a Safe
+        // companion check.
+        let confusable =
+            PathBuf::from("/Users/j/Library/Caches/org.swift.swiftpm/artifacts-backup/MyDep");
+        // artifacts-backup must NOT be Safe (it isn't artifacts/).
+        assert_eq!(
+            safety(CacheKind::SwiftPm, &confusable),
+            SafetyLevel::Caution
         );
     }
 }
