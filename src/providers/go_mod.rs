@@ -11,8 +11,107 @@
 use super::MetadataField;
 use std::path::Path;
 
-pub fn semantic_name(_path: &Path) -> Option<String> {
+pub fn semantic_name(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+
+    // Build cache entries are opaque content-addressed hex blobs; no
+    // meaningful semantic name.
+    if path_has_component(path, "go-build") {
+        return None;
+    }
+
+    // sumdb entries under cache/download/ are internal checksum data;
+    // the user has no use for per-file names there.
+    if path_has_component(path, "sumdb") {
+        return None;
+    }
+
+    // Known cache-root names render literally.
+    if matches!(name.as_str(), "mod" | "go-build") {
+        return None;
+    }
+
+    // Module zip in the canonical download layout:
+    // .../cache/download/<module>/@v/<version>.zip
+    if let Some((module, version)) = parse_download_zip(path) {
+        return Some(format!("{module} {version}"));
+    }
+
+    // Extracted module directory: .../pkg/mod/<module>@<version>
+    if let Some((module, version)) = parse_extracted_module_dir(path) {
+        return Some(format!("{module} {version}"));
+    }
+
     None
+}
+
+fn path_has_component(path: &Path, target: &str) -> bool {
+    path.components().any(|c| c.as_os_str() == target)
+}
+
+/// Parse `.../cache/download/<module-path>/@v/<version>.zip` into
+/// `(decoded-module, version)`. The module path is the chain of
+/// components between `download/` and `@v/`, joined by `/`.
+fn parse_download_zip(path: &Path) -> Option<(String, String)> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    let version = name.strip_suffix(".zip")?.to_string();
+
+    // Immediate parent must be `@v`.
+    let mut ancestors = path.ancestors();
+    ancestors.next(); // skip the file itself
+    let at_v = ancestors.next()?;
+    if at_v.file_name()?.to_string_lossy() != "@v" {
+        return None;
+    }
+
+    // Walk up from `@v`'s parent to the `download` marker, collecting
+    // module-path components.
+    let mut components: Vec<String> = Vec::new();
+    let mut current = at_v.parent()?;
+    loop {
+        let comp = current.file_name()?.to_string_lossy().to_string();
+        if comp == "download" {
+            break;
+        }
+        components.push(decode_module_path(&comp));
+        current = current.parent()?;
+    }
+    if components.is_empty() {
+        return None;
+    }
+    components.reverse();
+    Some((components.join("/"), version))
+}
+
+/// Parse `.../pkg/mod/<module-path>@<version>` (extracted source dir)
+/// into `(decoded-module, version)`. Last component carries `@`; the
+/// module path may span multiple parent components above `pkg/mod`.
+fn parse_extracted_module_dir(path: &Path) -> Option<(String, String)> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    let (last_module_part, version) = name.split_once('@')?;
+    if version.is_empty() {
+        return None;
+    }
+
+    // Parent chain up to `mod` (under `pkg`) carries the rest of the
+    // module path.
+    let mut components: Vec<String> = vec![decode_module_path(last_module_part)];
+    let mut current = path.parent()?;
+    loop {
+        let comp_name = current.file_name()?.to_string_lossy().to_string();
+        if comp_name == "mod" {
+            let grandparent = current.parent()?;
+            if grandparent.file_name()?.to_string_lossy() == "pkg" {
+                break;
+            } else {
+                return None; // `mod/` not under `pkg/` — not the Go layout.
+            }
+        }
+        components.push(decode_module_path(&comp_name));
+        current = current.parent()?;
+    }
+    components.reverse();
+    Some((components.join("/"), version.to_string()))
 }
 
 pub fn metadata(_path: &Path) -> Vec<MetadataField> {
@@ -25,4 +124,161 @@ pub fn package_id(_path: &Path) -> Option<super::PackageId> {
 
 pub fn pre_delete(_path: &Path) -> Result<(), String> {
     Ok(())
+}
+
+/// Decode Go's on-disk bang-escape scheme for module paths.
+/// `!<lowercase>` → uppercase, so `github.com/!uber/zap` → `github.com/Uber/zap`.
+/// Any `!` not followed by a lowercase ASCII letter passes through unchanged.
+fn decode_module_path(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '!' {
+            match chars.peek() {
+                Some(&next) if next.is_ascii_lowercase() => {
+                    out.push(next.to_ascii_uppercase());
+                    chars.next();
+                }
+                _ => out.push('!'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_module_path_single_uppercase() {
+        // Go only bang-escapes uppercase letters, one `!` per uppercase.
+        // `Uber` → on-disk `!uber`; `UBer` → `!u!ber`.
+        assert_eq!(decode_module_path("!uber"), "Uber");
+        assert_eq!(decode_module_path("!u!ber"), "UBer");
+    }
+
+    #[test]
+    fn decode_module_path_in_real_module_path() {
+        assert_eq!(
+            decode_module_path("github.com/!golang/!mock"),
+            "github.com/Golang/Mock"
+        );
+    }
+
+    #[test]
+    fn decode_module_path_trailing_lone_bang_passes_through() {
+        // Not a valid escape; preserve the trailing `!` rather than
+        // panicking.
+        assert_eq!(decode_module_path("github.com/foo!"), "github.com/foo!");
+    }
+
+    #[test]
+    fn decode_module_path_non_ascii_passes_through() {
+        // L2: multi-byte chars must not panic. Bang-escape only applies
+        // to uppercase ASCII; other codepoints pass through untouched.
+        assert_eq!(decode_module_path("github.com/café"), "github.com/café");
+    }
+
+    #[test]
+    fn decode_module_path_bang_followed_by_non_letter_passes_through() {
+        // `!-` isn't a valid bang-escape; preserve literally.
+        assert_eq!(decode_module_path("foo!-bar"), "foo!-bar");
+    }
+
+    #[test]
+    fn decode_module_path_empty_string() {
+        assert_eq!(decode_module_path(""), "");
+    }
+
+    use std::path::PathBuf;
+
+    // --- semantic_name ---
+
+    #[test]
+    fn semantic_name_module_zip() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.zip",
+        );
+        assert_eq!(
+            semantic_name(&path),
+            Some("github.com/stretchr/testify v1.8.4".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_module_zip_decodes_bang_escape() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/!uber-go/zap/@v/v1.27.0.zip",
+        );
+        assert_eq!(
+            semantic_name(&path),
+            Some("github.com/Uber-go/zap v1.27.0".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_extracted_module_dir() {
+        let path = PathBuf::from("/Users/j/go/pkg/mod/github.com/stretchr/testify@v1.8.4");
+        assert_eq!(
+            semantic_name(&path),
+            Some("github.com/stretchr/testify v1.8.4".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_extracted_module_dir_decodes_bang_escape() {
+        let path = PathBuf::from("/Users/j/go/pkg/mod/github.com/!uber-go/zap@v1.27.0");
+        assert_eq!(
+            semantic_name(&path),
+            Some("github.com/Uber-go/zap v1.27.0".into())
+        );
+    }
+
+    #[test]
+    fn semantic_name_info_file_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.info",
+        );
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_mod_file_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.mod",
+        );
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_ziphash_file_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.ziphash",
+        );
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_sumdb_file_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/sumdb/sum.golang.org/lookup/github.com/foo/bar@v1.0.0",
+        );
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_build_cache_entry_returns_none() {
+        let path = PathBuf::from("/Users/j/Library/Caches/go-build/ab/abcdef123456-d");
+        assert_eq!(semantic_name(&path), None);
+    }
+
+    #[test]
+    fn semantic_name_known_roots_return_none() {
+        for p in ["/Users/j/go/pkg/mod", "/Users/j/Library/Caches/go-build"] {
+            assert_eq!(semantic_name(&PathBuf::from(p)), None, "{p}");
+        }
+    }
 }
