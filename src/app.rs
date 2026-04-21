@@ -554,6 +554,16 @@ impl App {
 
             // Measure size before deleting
             let size = crate::scanner::walker::dir_size(path);
+
+            // Provider-specific pre-delete hook (e.g. chmod +w on Go's
+            // read-only module cache). Default is a no-op. Hook errors
+            // count as failures — the subsequent remove_dir_all would
+            // just hit the same problem.
+            if crate::providers::pre_delete(kind, path).is_err() {
+                errored += 1;
+                continue;
+            }
+
             let outcome = if path.is_dir() {
                 std::fs::remove_dir_all(path)
             } else {

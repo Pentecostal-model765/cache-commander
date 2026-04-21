@@ -22,6 +22,7 @@ pub enum CacheKind {
     Gradle,
     SwiftPm,
     Xcode,
+    Go,
     #[default]
     Unknown,
 }
@@ -48,6 +49,7 @@ impl CacheKind {
             Self::Gradle => "Gradle",
             Self::SwiftPm => "Swift Package Manager",
             Self::Xcode => "Xcode",
+            Self::Go => "Go",
             Self::Unknown => "",
         }
     }
@@ -77,6 +79,7 @@ impl CacheKind {
             }
             Self::SwiftPm => "Swift Package Manager — cached git clones, artifacts, and manifests",
             Self::Xcode => "Xcode build caches — DerivedData, iOS DeviceSupport, Simulator",
+            Self::Go => "Go module cache and build cache",
             Self::Unknown => "",
         }
     }
@@ -102,6 +105,7 @@ impl CacheKind {
             Self::Gradle => "https://gradle.org",
             Self::SwiftPm => "https://www.swift.org/package-manager/",
             Self::Xcode => "https://developer.apple.com/xcode/",
+            Self::Go => "https://go.dev",
             Self::Unknown => "",
         }
     }
@@ -258,6 +262,7 @@ mod tests {
             CacheKind::Gradle,
             CacheKind::SwiftPm,
             CacheKind::Xcode,
+            CacheKind::Go,
         ];
         for kind in &all {
             assert!(!kind.label().is_empty(), "{:?} label empty", kind);
@@ -302,5 +307,12 @@ mod tests {
         assert_eq!(CacheKind::Xcode.label(), "Xcode");
         assert!(!CacheKind::Xcode.description().is_empty());
         assert_eq!(CacheKind::Xcode.url(), "https://developer.apple.com/xcode/");
+    }
+
+    #[test]
+    fn cache_kind_go_label_description_url() {
+        assert_eq!(CacheKind::Go.label(), "Go");
+        assert!(!CacheKind::Go.description().is_empty());
+        assert_eq!(CacheKind::Go.url(), "https://go.dev");
     }
 }
