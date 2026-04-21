@@ -118,8 +118,24 @@ pub fn metadata(_path: &Path) -> Vec<MetadataField> {
     Vec::new()
 }
 
-pub fn package_id(_path: &Path) -> Option<super::PackageId> {
-    None
+pub fn package_id(path: &Path) -> Option<super::PackageId> {
+    // Dedup canonical file (L9): `cache/download/<module>/@v/<version>.{zip,info,mod,ziphash}`
+    // produces four sibling files per package. Only `.zip` is the
+    // identity source — the others sit alongside.
+    let name = path.file_name()?.to_string_lossy().to_string();
+    if !name.ends_with(".zip") {
+        return None;
+    }
+    // sumdb entries live under cache/download/ but aren't packages.
+    if path_has_component(path, "sumdb") {
+        return None;
+    }
+    let (module, version) = parse_download_zip(path)?;
+    Some(super::PackageId {
+        ecosystem: "Go",
+        name: module,
+        version,
+    })
 }
 
 pub fn pre_delete(_path: &Path) -> Result<(), String> {
@@ -280,5 +296,75 @@ mod tests {
         for p in ["/Users/j/go/pkg/mod", "/Users/j/Library/Caches/go-build"] {
             assert_eq!(semantic_name(&PathBuf::from(p)), None, "{p}");
         }
+    }
+
+    // --- package_id ---
+
+    #[test]
+    fn package_id_from_zip() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.zip",
+        );
+        let id = package_id(&path).expect("expected PackageId");
+        assert_eq!(id.ecosystem, "Go");
+        assert_eq!(id.name, "github.com/stretchr/testify");
+        assert_eq!(id.version, "v1.8.4");
+    }
+
+    #[test]
+    fn package_id_module_path_is_decoded() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/!uber-go/zap/@v/v1.27.0.zip",
+        );
+        let id = package_id(&path).expect("expected PackageId");
+        assert_eq!(id.name, "github.com/Uber-go/zap");
+        assert_eq!(id.version, "v1.27.0");
+    }
+
+    #[test]
+    fn package_id_from_info_returns_none() {
+        // L9: dedup canonical-file guard — only .zip produces a PackageId.
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.info",
+        );
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_from_mod_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.mod",
+        );
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_from_ziphash_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.ziphash",
+        );
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_from_extracted_dir_returns_none() {
+        // Extracted dir shares the same (module, version); counting it
+        // would double-count. Only the .zip produces identity.
+        let path = PathBuf::from("/Users/j/go/pkg/mod/github.com/stretchr/testify@v1.8.4");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_from_build_cache_entry_returns_none() {
+        let path = PathBuf::from("/Users/j/Library/Caches/go-build/ab/abcdef-d");
+        assert_eq!(package_id(&path), None);
+    }
+
+    #[test]
+    fn package_id_from_sumdb_returns_none() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/sumdb/sum.golang.org/lookup/github.com/foo/bar@v1.0.0",
+        );
+        assert_eq!(package_id(&path), None);
     }
 }
