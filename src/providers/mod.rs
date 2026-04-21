@@ -3,6 +3,7 @@ pub mod cargo;
 pub mod chroma;
 pub mod generic;
 pub mod gh;
+pub mod go_mod;
 pub mod gradle;
 pub mod homebrew;
 pub mod huggingface;
@@ -81,6 +82,7 @@ pub fn detect(path: &Path) -> CacheKind {
         ".m2" => return CacheKind::Maven,
         ".gradle" => return CacheKind::Gradle,
         "org.swift.swiftpm" => return CacheKind::SwiftPm,
+        "go-build" => return CacheKind::Go,
         _ => {}
     }
 
@@ -136,6 +138,7 @@ pub fn detect(path: &Path) -> CacheKind {
                 return CacheKind::Cargo;
             }
             "org.swift.swiftpm" => return CacheKind::SwiftPm,
+            "go-build" => return CacheKind::Go,
             _ => {}
         }
     }
@@ -149,6 +152,16 @@ pub fn detect(path: &Path) -> CacheKind {
         || has_adjacent_components(path, "CoreSimulator", "Caches")
     {
         return CacheKind::Xcode;
+    }
+
+    // Go module cache: `<GOPATH>/pkg/mod`. Adjacent-component match on
+    // `pkg/mod` is enough — `pkg` is generic enough that we need the
+    // `mod` follow-on to avoid false positives, and L1 rejects
+    // `pkg/mod-backup` because the literal component after `pkg` must
+    // be exactly `mod`. `go-build` is covered via direct-name match
+    // above.
+    if has_adjacent_components(path, "pkg", "mod") {
+        return CacheKind::Go;
     }
 
     CacheKind::Unknown
@@ -176,6 +189,7 @@ pub fn semantic_name(kind: CacheKind, path: &Path) -> Option<String> {
         CacheKind::Gradle => gradle::semantic_name(path),
         CacheKind::SwiftPm => swiftpm::semantic_name(path),
         CacheKind::Xcode => xcode::semantic_name(path),
+        CacheKind::Go => go_mod::semantic_name(path),
         CacheKind::Unknown => None,
     }
 }
@@ -202,6 +216,7 @@ pub fn metadata(kind: CacheKind, path: &Path) -> Vec<MetadataField> {
         CacheKind::Gradle => gradle::metadata(path),
         CacheKind::SwiftPm => swiftpm::metadata(path),
         CacheKind::Xcode => xcode::metadata(path),
+        CacheKind::Go => go_mod::metadata(path),
         CacheKind::Unknown => generic::metadata(path),
     }
 }
@@ -224,6 +239,7 @@ pub fn package_id(kind: CacheKind, path: &Path) -> Option<PackageId> {
         CacheKind::Bun => bun::package_id(path),
         CacheKind::Maven => maven::package_id(path),
         CacheKind::Gradle => gradle::package_id(path),
+        CacheKind::Go => go_mod::package_id(path),
         _ => None,
     }
 }
@@ -258,6 +274,7 @@ pub fn upgrade_command(kind: CacheKind, name: &str, version: &str) -> Option<Str
         CacheKind::Yarn => Some(format!("yarn add {name}@{version}")),
         CacheKind::Pnpm => Some(format!("pnpm add {name}@{version}")),
         CacheKind::Bun => Some(format!("bun add {name}@{version}")),
+        CacheKind::Go => Some(format!("go get {name}@{version}")),
         _ => None,
     }
 }
@@ -390,8 +407,36 @@ pub fn safety(kind: CacheKind, path: &Path) -> SafetyLevel {
                 SafetyLevel::Safe
             }
         }
+        CacheKind::Go => {
+            // Module cache (pkg/mod) → Safe (re-resolvable from
+            // proxy.golang.org / VCS). Everything else classified as
+            // Go (build cache go-build, or any unknown-layout path) →
+            // Caution (cold rebuild cost for the build cache;
+            // conservative default for unknown subtrees). Component
+            // matching rejects L1 confusable suffixes like
+            // `pkg/mod-backup`.
+            if has_adjacent_components(path, "pkg", "mod") {
+                SafetyLevel::Safe
+            } else {
+                SafetyLevel::Caution
+            }
+        }
         CacheKind::Unknown => SafetyLevel::Caution,
         _ => SafetyLevel::Safe,
+    }
+}
+
+/// Custodial setup before the tree attempts `remove_dir_all` on a cache
+/// subtree. Default is a no-op; providers override when the filesystem
+/// needs preparation before removal (e.g. stripping read-only flags on
+/// Go's module cache — Go `chmod -w`'s extracted modules by design).
+///
+/// A hook error is surfaced as the existing `errored` counter in the
+/// delete status line.
+pub fn pre_delete(kind: CacheKind, path: &Path) -> Result<(), String> {
+    match kind {
+        CacheKind::Go => go_mod::pre_delete(path),
+        _ => Ok(()),
     }
 }
 
@@ -1585,5 +1630,145 @@ mod tests {
         // L1: DerivedData-backup must not be classified as Caution-DerivedData.
         let path = PathBuf::from("/Users/j/Library/Developer/Xcode/DerivedData-backup/junk");
         assert_eq!(safety(CacheKind::Xcode, &path), SafetyLevel::Safe);
+    }
+
+    // --- Go safety ---
+
+    #[test]
+    fn safety_go_module_cache_is_safe() {
+        let path = PathBuf::from(
+            "/Users/j/go/pkg/mod/cache/download/github.com/stretchr/testify/@v/v1.8.4.zip",
+        );
+        assert_eq!(safety(CacheKind::Go, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_go_module_cache_extracted_is_safe() {
+        let path = PathBuf::from("/Users/j/go/pkg/mod/github.com/stretchr/testify@v1.8.4");
+        assert_eq!(safety(CacheKind::Go, &path), SafetyLevel::Safe);
+    }
+
+    #[test]
+    fn safety_go_build_cache_is_caution() {
+        let path = PathBuf::from("/Users/j/Library/Caches/go-build/ab/abcdef-d");
+        assert_eq!(safety(CacheKind::Go, &path), SafetyLevel::Caution);
+    }
+
+    #[test]
+    fn safety_go_rejects_confusable_pkg_mod_backup() {
+        // L1: pkg/mod-backup must not be classified as module-cache Safe.
+        // Falls through to the Go default (Caution) since neither
+        // pkg/mod nor go-build matches.
+        let path = PathBuf::from("/Users/j/go/pkg/mod-backup/foo");
+        assert_eq!(safety(CacheKind::Go, &path), SafetyLevel::Caution);
+    }
+
+    // --- Go upgrade_command ---
+
+    #[test]
+    fn upgrade_command_go_emits_go_get() {
+        assert_eq!(
+            upgrade_command(CacheKind::Go, "github.com/stretchr/testify", "v1.8.4"),
+            Some("go get github.com/stretchr/testify@v1.8.4".into())
+        );
+    }
+
+    // --- pre_delete default dispatch ---
+
+    #[test]
+    fn pre_delete_default_is_ok_for_every_non_go_cache_kind() {
+        // Regression guard: any CacheKind without a dedicated hook
+        // must fall through the _ arm returning Ok(()). A buggy arm
+        // here would block deletes globally.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().to_path_buf();
+        for kind in [
+            CacheKind::HuggingFace,
+            CacheKind::Pip,
+            CacheKind::Uv,
+            CacheKind::Npm,
+            CacheKind::Homebrew,
+            CacheKind::Cargo,
+            CacheKind::PreCommit,
+            CacheKind::Whisper,
+            CacheKind::Gh,
+            CacheKind::Torch,
+            CacheKind::Chroma,
+            CacheKind::Prisma,
+            CacheKind::Yarn,
+            CacheKind::Pnpm,
+            CacheKind::Bun,
+            CacheKind::Maven,
+            CacheKind::Gradle,
+            CacheKind::SwiftPm,
+            CacheKind::Xcode,
+            CacheKind::Unknown,
+        ] {
+            assert!(
+                pre_delete(kind, &path).is_ok(),
+                "{kind:?} pre_delete must default to Ok(())"
+            );
+        }
+    }
+
+    // --- Go detect ---
+
+    #[test]
+    fn detect_go_build_cache_root() {
+        assert_eq!(
+            detect(&PathBuf::from("/Users/j/Library/Caches/go-build")),
+            CacheKind::Go
+        );
+    }
+
+    #[test]
+    fn detect_go_build_cache_deep_path() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/Library/Caches/go-build/ab/abcdef123456-d"
+            )),
+            CacheKind::Go
+        );
+    }
+
+    #[test]
+    fn detect_go_module_cache_pkg_mod_root() {
+        assert_eq!(detect(&PathBuf::from("/Users/j/go/pkg/mod")), CacheKind::Go);
+    }
+
+    #[test]
+    fn detect_go_module_cache_download_zip() {
+        assert_eq!(
+            detect(&PathBuf::from(
+                "/Users/j/go/pkg/mod/cache/download/github.com/!uber-go/zap/@v/v1.27.0.zip"
+            )),
+            CacheKind::Go
+        );
+    }
+
+    #[test]
+    fn detect_go_rejects_pkg_mod_backup() {
+        // L1: pkg-mod-backup or pkg/mod-backup must not match.
+        assert_ne!(
+            detect(&PathBuf::from("/Users/j/go/pkg/mod-backup/foo")),
+            CacheKind::Go
+        );
+    }
+
+    #[test]
+    fn detect_go_rejects_go_build_backup() {
+        assert_ne!(
+            detect(&PathBuf::from("/Users/j/Library/Caches/go-build-backup")),
+            CacheKind::Go
+        );
+    }
+
+    #[test]
+    fn detect_go_rejects_unrelated_mod_dir() {
+        // Random `mod/` not under a `pkg/` parent must not match.
+        assert_ne!(
+            detect(&PathBuf::from("/tmp/random/mod/stuff")),
+            CacheKind::Go
+        );
     }
 }
